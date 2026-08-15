@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "AutomationHub Trending Reader",
+  "version": "0.5.1",
+  "description": "读取 GitHub Trending 项目的渲染后 README，并准备上传到 AutomationHub。",
+  "permissions": ["alarms", "storage", "tabs", "sidePanel"],
+  "host_permissions": [
+    "https://github.com/*",
+    "http://localhost:3000/*"
+  ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "action": {},
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/trending*", "https://github.com/*/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

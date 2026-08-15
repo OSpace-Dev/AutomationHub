@@ -1,0 +1,13 @@
+{
+  "name": "automation-hub",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.11.0",
+  "scripts": {
+    "dev:api": "corepack pnpm --filter automation-hub-api dev",
+    "dev:admin": "corepack pnpm --filter automation-hub-admin dev",
+    "test": "corepack pnpm --recursive --if-present test",
+    "typecheck": "corepack pnpm --recursive --if-present typecheck",
+    "build": "corepack pnpm --recursive --if-present build"
+  }
+}

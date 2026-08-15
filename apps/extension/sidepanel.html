@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AutomationHub 采集器</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand-mark" aria-hidden="true">AH</div>
+      <div class="brand-copy">
+        <strong>AutomationHub</strong>
+        <span>Trending README 采集器</span>
+      </div>
+      <span id="connection-chip" class="status-chip" data-state="unknown">检查中</span>
+    </header>
+
+    <main>
+      <section class="capture-overview" aria-labelledby="capture-title">
+        <div class="section-heading">
+          <div>
+            <span class="section-label">采集任务</span>
+            <h1 id="capture-title">当前进度</h1>
+          </div>
+          <span id="capture-phase" class="phase-label">未开始</span>
+        </div>
+
+        <div class="progress-track" aria-hidden="true"><span id="progress-bar"></span></div>
+        <div class="progress-row">
+          <strong id="progress-count">0 / 0</strong>
+          <span id="next-countdown">等待开始</span>
+        </div>
+
+        <div class="current-project">
+          <span>当前项目</span>
+          <strong id="current-project-name">暂无</strong>
+        </div>
+
+        <div class="control-row">
+          <button id="start-capture" class="primary-button" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 3 14 9-14 9V3Z" /></svg>
+            <span>开始采集</span>
+          </button>
+          <button id="stop-capture" class="icon-button" type="button" title="暂停采集" aria-label="暂停采集" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect width="4" height="16" x="6" y="4" rx="1"/><rect width="4" height="16" x="14" y="4" rx="1"/></svg>
+          </button>
+          <button id="open-trending" class="icon-button" type="button" title="打开 GitHub Trending" aria-label="打开 GitHub Trending">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+          </button>
+          <button id="refresh-connection" class="icon-button" type="button" title="检查服务连接" aria-label="检查服务连接">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
+          </button>
+        </div>
+      </section>
+
+      <section class="telemetry" aria-label="运行状态">
+        <dl>
+          <div><dt>服务连接</dt><dd id="connection-state">检查中</dd></div>
+          <div><dt>最近心跳</dt><dd id="heartbeat-at">暂无</dd></div>
+          <div><dt>待上传</dt><dd><strong id="queue-depth">0</strong> 项</dd></div>
+          <div><dt>请求间隔</dt><dd id="delay-summary">5–10 秒</dd></div>
+        </dl>
+      </section>
+
+      <section class="activity-panel" aria-labelledby="activity-title">
+        <div class="activity-heading"><strong id="activity-title">最近活动</strong><span>最多保留 60 条</span></div>
+        <ol id="activity-log-list" class="activity-log-list" aria-live="polite"><li class="activity-empty">等待插件活动...</li></ol>
+      </section>
+
+      <section id="error-panel" class="error-panel" aria-live="polite" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div><strong>最近错误</strong><p id="last-error"></p></div>
+      </section>
+
+      <details class="settings-section">
+        <summary>
+            <span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg>
+            采集设置与设备
+          </span>
+          <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </summary>
+        <div class="settings-content">
+          <form id="delay-form">
+            <div class="field-row">
+              <label>最小间隔（秒）<input id="min-delay" type="number" min="5" max="600" step="1" /></label>
+              <label>最大间隔（秒）<input id="max-delay" type="number" min="5" max="600" step="1" /></label>
+            </div>
+            <button class="secondary-button" type="submit">保存间隔</button>
+          </form>
+
+          <div class="divider"></div>
+
+          <label>服务端地址<input id="api-origin" type="url" value="http://localhost:3000" required /></label>
+          <form id="authorization-form" class="authorization-form">
+            <label>授权码<input id="authorization-code" type="text" autocomplete="off" placeholder="AH-..." /></label>
+            <button id="register-device" class="secondary-button" type="submit">连接设备</button>
+          </form>
+          <p class="settings-note">授权码连接成功后即失效。插件只保存设备令牌，不保存授权码。</p>
+        </div>
+      </details>
+
+      <p id="message" class="message" role="status" aria-live="polite"></p>
+    </main>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+services:
+  automation-hub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: automation-hub:${AUTOMATION_HUB_VERSION:-local}
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${AUTOMATION_HUB_PORT:-3000}:3000"
+    volumes:
+      - automationhub-data:/app/data
+
+volumes:
+  automationhub-data:
