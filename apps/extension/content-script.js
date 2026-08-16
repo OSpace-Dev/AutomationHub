@@ -13,12 +13,29 @@ const README_SELECTORS = [
 function readTrendingProjects() {
   return Array.from(document.querySelectorAll("article.Box-row")).map((article, index) => {
     const link = article.querySelector('h2 a[href*="/"]');
+    const description = article.querySelector("p.col-9, p.color-fg-muted")?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    const language = article.querySelector('[itemprop="programmingLanguage"]')?.textContent?.trim() ?? "";
+    const starsLink = article.querySelector('a[href$="/stargazers"]');
+    const starsTodayText = Array.from(article.querySelectorAll("span"))
+      .map((element) => element.textContent?.replace(/\s+/g, " ").trim() ?? "")
+      .find((text) => /\bstars?\s+today\b/i.test(text)) ?? "";
     return {
       rank: index + 1,
       name: link?.textContent?.replace(/\s+/g, " ").trim() ?? "",
-      url: link ? new URL(link.getAttribute("href"), location.origin).href : ""
+      url: link ? new URL(link.getAttribute("href"), location.origin).href : "",
+      description,
+      language,
+      totalStars: parseGitHubCount(starsLink?.textContent),
+      starsToday: parseGitHubCount(starsTodayText)
     };
   }).filter((project) => project.url);
+}
+
+function parseGitHubCount(value) {
+  const match = String(value ?? "").replace(/,/g, "").match(/(\d+(?:\.\d+)?)\s*([km])?/i);
+  if (!match) return null;
+  const multiplier = match[2]?.toLowerCase() === "k" ? 1_000 : match[2]?.toLowerCase() === "m" ? 1_000_000 : 1;
+  return Math.round(Number(match[1]) * multiplier);
 }
 
 function findReadmeContainer() {

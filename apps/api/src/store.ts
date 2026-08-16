@@ -42,6 +42,28 @@ export class FileStore implements Store {
   }
 
   async read(): Promise<StoreData> {
+    let result!: StoreData;
+    const next = this.operation.then(async () => {
+      result = await this.readCurrent();
+    });
+    this.operation = next.catch(() => undefined);
+    await next;
+    return result;
+  }
+
+  async update<T>(mutation: (data: StoreData) => T): Promise<T> {
+    let result!: T;
+    const next = this.operation.then(async () => {
+      const data = await this.readCurrent();
+      result = mutation(data);
+      await this.write(data);
+    });
+    this.operation = next.catch(() => undefined);
+    await next;
+    return result;
+  }
+
+  private async readCurrent(): Promise<StoreData> {
     const content = await readFile(this.filePath, "utf8");
     const parsed = JSON.parse(content) as Partial<StoreData>;
     return {
@@ -54,20 +76,11 @@ export class FileStore implements Store {
       tasks: parsed.tasks ?? [],
       schedules: parsed.schedules ?? [],
       logs: parsed.logs ?? [],
-      registrationCodes: parsed.registrationCodes ?? []
+      registrationCodes: parsed.registrationCodes ?? [],
+      modelProviders: parsed.modelProviders ?? [],
+      reportDefinitions: parsed.reportDefinitions ?? [],
+      reportGenerations: parsed.reportGenerations ?? []
     };
-  }
-
-  async update<T>(mutation: (data: StoreData) => T): Promise<T> {
-    let result!: T;
-    const next = this.operation.then(async () => {
-      const data = await this.read();
-      result = mutation(data);
-      await this.write(data);
-    });
-    this.operation = next.catch(() => undefined);
-    await next;
-    return result;
   }
 
   private async write(data: StoreData): Promise<void> {

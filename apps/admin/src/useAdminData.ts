@@ -1,8 +1,8 @@
 import { computed, reactive, ref } from "vue";
 import type { ApiResponse, ConnectionState, Device, DeviceAuthorization, Item, PageMeta, Run, RuntimeLog, Status, Task, TaskSchedule } from "./admin-models";
 
-const apiOrigin = ref(sessionStorage.getItem("automationhub.apiOrigin") ?? (import.meta.env.DEV ? "http://localhost:3000" : window.location.origin));
-const adminApiKey = ref(sessionStorage.getItem("automationhub.adminApiKey") ?? "");
+export const apiOrigin = ref(sessionStorage.getItem("automationhub.apiOrigin") ?? (import.meta.env.DEV ? "http://localhost:3000" : window.location.origin));
+export const adminApiKey = ref(sessionStorage.getItem("automationhub.adminApiKey") ?? "");
 const showConnectionSettings = ref(true);
 const today = new Date().toISOString().slice(0, 10);
 const runsDate = ref(today);
@@ -17,7 +17,7 @@ const emptyMeta = (): PageMeta => ({ total: 0, page: 1, page_size: 20, total_pag
 const pagination = reactive({ runs: emptyMeta(), devices: emptyMeta(), authorizations: emptyMeta(), tasks: emptyMeta(), schedules: emptyMeta(), logs: emptyMeta(), items: emptyMeta() });
 const metrics = computed(() => ({ runs: pagination.runs.total, projects: runs.value.reduce((total, run) => total + run.itemCount, 0), success: runs.value.reduce((total, run) => total + run.successCount, 0), failed: runs.value.reduce((total, run) => total + run.failureCount, 0), onlineDevices: devices.value.filter(isDeviceOnline).length, monitoringOnlineDevices: monitoringDevices.value.filter(isDeviceOnline).length, pendingTasks: tasks.value.filter((task) => task.status === "pending" || task.status === "running").length }));
 const connectionLabel = computed(() => ({ disconnected: "未连接", connecting: "连接中", online: "服务在线", error: "连接异常" })[connectionState.value]);
-export type AdminView = "runs" | "devices" | "tasks" | "monitoring";
+export type AdminView = "runs" | "devices" | "tasks" | "monitoring" | "reports" | "models";
 type RefreshOptions = { background?: boolean };
 type SelectRunOptions = { resetPage?: boolean; preserveSelectedItem?: boolean; background?: boolean };
 let itemRequestSequence = 0;
@@ -33,7 +33,7 @@ async function refreshView(view: AdminView, options: RefreshOptions = {}) {
     if (view === "runs") await refreshRuns(options);
     else if (view === "devices") await refreshDevices();
     else if (view === "tasks") await refreshTasks();
-    else await refreshMonitoring();
+    else if (view === "monitoring") await refreshMonitoring();
     connectionState.value = "online";
   } catch (error) {
     connectionState.value = "error";
@@ -118,8 +118,8 @@ async function cancelTask(task: Task) { if (!["pending", "running", "paused"].in
 async function cancelSchedule(schedule: TaskSchedule) { if (schedule.status !== "active" || !window.confirm("确认停用该计划吗？已经生成的任务不会被删除。")) return; cancellingScheduleId.value = schedule.id; errorMessage.value = ""; try { await apiFetch<TaskSchedule>(`/api/v1/admin/schedules/${encodeURIComponent(schedule.id)}`, { method: "DELETE" }); await refreshView("tasks"); } catch (error) { errorMessage.value = error instanceof Error ? error.message : "计划停用失败。"; } finally { cancellingScheduleId.value = ""; } }
 async function revokeDevice(device: Device) { if (!window.confirm(`确认撤销设备“${device.name}”吗？撤销后该设备将无法继续上传。`)) return; revokingDeviceId.value = device.id; errorMessage.value = ""; try { await apiFetch(`/api/v1/admin/devices/${encodeURIComponent(device.id)}:revoke`, { method: "POST" }); await refreshView("devices"); } catch (error) { errorMessage.value = error instanceof Error ? error.message : "设备撤销失败。"; } finally { revokingDeviceId.value = ""; } }
 async function changePage(kind: keyof typeof pagination, page: number) { const state = pagination[kind]; const target = Math.min(Math.max(page, 1), state.total_pages); if (target === state.page && state.total === 0) return; state.page = target; if (kind === "items" && selectedRun.value) await selectRun(selectedRun.value, { resetPage: false }); else if (kind === "runs") await refreshView("runs"); else if (kind === "devices" || kind === "authorizations") await refreshView("devices"); else if (kind === "tasks" || kind === "schedules") await refreshView("tasks"); else await refreshView("monitoring"); }
-async function apiFetch<T = unknown>(path: string, init: RequestInit = {}) { const response = await fetch(`${apiOrigin.value.replace(/\/$/, "")}${path}`, { ...init, headers: { "content-type": "application/json", ...(adminApiKey.value ? { "x-admin-key": adminApiKey.value } : {}), ...(init.headers ?? {}) } }); const body = await response.json() as ApiResponse<T>; if (!response.ok) throw new Error(body.message || body.code || "管理 API 请求失败。"); return body; }
-function pagePath(path: string, state: PageMeta) { const joiner = path.includes("?") ? "&" : "?"; return `${path}${joiner}page=${state.page}&page_size=${state.page_size}`; }
+export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}) { const response = await fetch(`${apiOrigin.value.replace(/\/$/, "")}${path}`, { ...init, headers: { "content-type": "application/json", ...(adminApiKey.value ? { "x-admin-key": adminApiKey.value } : {}), ...(init.headers ?? {}) } }); const body = await response.json() as ApiResponse<T>; if (!response.ok) throw new Error(body.message || body.code || "管理 API 请求失败。"); return body; }
+export function pagePath(path: string, state: PageMeta) { const joiner = path.includes("?") ? "&" : "?"; return `${path}${joiner}page=${state.page}&page_size=${state.page_size}`; }
 function localMeta<T>(items: T[], state: PageMeta): PageMeta { return { total: items.length, page: state.page, page_size: state.page_size, total_pages: Math.max(1, Math.ceil(items.length / state.page_size)) }; }
 function formatTime(value?: string) { return value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "未上报"; }
 function statusLabel(status: Status) { const labels: Record<Status, string> = { success: "成功", failed: "失败", pending: "待处理", running: "进行中", completed: "完成", partial: "部分完成", paused: "已暂停", cancelled: "已取消", active: "有效", used: "已使用", expired: "已过期", revoked: "已撤销" }; return labels[status] ?? status; }

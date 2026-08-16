@@ -6,6 +6,10 @@ export type TaskStatus = "pending" | "running" | "paused" | "completed" | "faile
 export type ScheduleRecurrence = "once" | "daily";
 export type ScheduleStatus = "active" | "completed" | "cancelled";
 export type RuntimeLogLevel = "info" | "warn" | "error";
+export type ModelProviderStatus = "active" | "disabled";
+export type ReportGenerationStatus = "pending" | "running" | "completed" | "failed";
+export type ReportGenerationTrigger = "automatic" | "manual" | "retry";
+export type ReportSourceType = "github_trending";
 
 export interface RegistrationCode {
   id: string;
@@ -103,12 +107,125 @@ export interface ProjectSnapshot {
   normalizedProjectUrl: string;
   rank: number;
   name: string;
+  description?: string;
+  language?: string;
+  totalStars?: number;
+  starsToday?: number;
   readmeHtml: string;
   readmeText: string;
   contentHash: string;
   readAt: string;
   status: ItemStatus;
   errorCode?: string;
+}
+
+export interface ReportProjectInsight {
+  projectUrl: string;
+  name: string;
+  rank: number;
+  category: string;
+  purpose?: string;
+  attentionReason?: string;
+  description?: string;
+  language?: string;
+  totalStars?: number;
+  starsToday?: number;
+  totalStarsDelta?: number;
+}
+
+export interface ReportCategoryInsight {
+  key: string;
+  label: string;
+  projectCount: number;
+  totalStars?: number;
+  starsToday?: number;
+  projects: ReportProjectInsight[];
+}
+
+export interface ReportTrendProject {
+  projectUrl: string;
+  name: string;
+  currentRank?: number;
+  previousRank?: number;
+  rankChange?: number;
+  totalStarsDelta?: number;
+}
+
+export interface ReportInsights {
+  presentationVersion?: 2;
+  overview?: string;
+  metrics: {
+    projectCount: number;
+    totalStars?: number;
+    starsToday?: number;
+    categoryCount: number;
+    totalStarsDelta?: number;
+    knownTotalStarsCount: number;
+    knownStarsTodayCount: number;
+    comparableProjectCount: number;
+    analysisFallbackCount?: number;
+  };
+  categories: ReportCategoryInsight[];
+  trends: {
+    hasComparison: boolean;
+    comparisonDate?: string;
+    newEntries: ReportTrendProject[];
+    continuedEntries: ReportTrendProject[];
+    exitedEntries: ReportTrendProject[];
+    risingEntries: ReportTrendProject[];
+    fallingEntries: ReportTrendProject[];
+    unchangedEntries: ReportTrendProject[];
+  };
+}
+
+export interface ModelProvider {
+  id: string;
+  name: string;
+  baseUrl: string;
+  encryptedApiKey: string;
+  apiKeyHint: string;
+  selectedModel: string;
+  isDefault: boolean;
+  status: ModelProviderStatus;
+  lastModelsFetchedAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReportDefinition {
+  id: string;
+  type: string;
+  name: string;
+  sourceType: ReportSourceType;
+  providerId?: string;
+  promptTemplate: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReportGeneration {
+  id: string;
+  definitionId: string;
+  sourceType: ReportSourceType;
+  businessDate: string;
+  runId: string;
+  trigger: ReportGenerationTrigger;
+  status: ReportGenerationStatus;
+  providerName?: string;
+  model?: string;
+  inputItemCount: number;
+  attemptCount: number;
+  content?: string;
+  insights?: ReportInsights;
+  errorCode?: string;
+  errorMessage?: string;
+  parentGenerationId?: string;
+  shareToken?: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
 }
 
 export interface StoreData {
@@ -120,6 +237,9 @@ export interface StoreData {
   tasks: CollectionTask[];
   schedules: TaskSchedule[];
   logs: RuntimeLog[];
+  modelProviders: ModelProvider[];
+  reportDefinitions: ReportDefinition[];
+  reportGenerations: ReportGeneration[];
 }
 
 export const EMPTY_STORE: StoreData = {
@@ -130,5 +250,8 @@ export const EMPTY_STORE: StoreData = {
   items: [],
   tasks: [],
   schedules: [],
-  logs: []
+  logs: [],
+  modelProviders: [],
+  reportDefinitions: [],
+  reportGenerations: []
 };

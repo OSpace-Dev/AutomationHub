@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
-import { Activity, AlertCircle, Database, ExternalLink, Layers3, Maximize2, Minimize2, Monitor, RefreshCw, Server, Settings, Wifi, X } from "lucide-vue-next";
+import { Activity, AlertCircle, Bot, Database, ExternalLink, FileText, Layers3, Maximize2, Minimize2, Monitor, RefreshCw, Server, Settings, Wifi, X } from "lucide-vue-next";
 import { useAdminData } from "./useAdminData";
 import type { AdminView } from "./useAdminData";
 
 const route = useRoute();
 const data = reactive(useAdminData());
 const readmeFullscreen = ref(false);
-const activeTab = computed<AdminView>(() => (route.name === "devices" || route.name === "tasks" || route.name === "monitoring" ? route.name : "runs"));
-const pageTitle = computed(() => ({ runs: "每日采集数据", devices: "采集设备", tasks: "任务中心", monitoring: "运行监控" }[activeTab.value as string] ?? "每日采集数据"));
-const pageSubtitle = computed(() => ({ runs: "浏览每日批次并核对项目 README 结果", devices: "掌握采集节点的连接与队列状态", tasks: "下发、跟踪和取消采集任务", monitoring: "查看心跳与插件运行事件" }[activeTab.value as string] ?? ""));
+const activeTab = computed<AdminView>(() => (["runs", "devices", "tasks", "monitoring", "reports", "models"].includes(String(route.name)) ? route.name as AdminView : "runs"));
+const pageTitle = computed(() => ({ runs: "每日采集数据", devices: "采集设备", tasks: "任务中心", monitoring: "运行监控", reports: "日报中心", models: "模型配置" }[activeTab.value]));
+const pageSubtitle = computed(() => ({ runs: "浏览每日批次并核对项目 README 结果", devices: "掌握采集节点的连接与队列状态", tasks: "下发、跟踪和取消采集任务", monitoring: "查看心跳与插件运行事件", reports: "阅读、手动生成和追踪每日业务总结", models: "管理 OpenAI 兼容服务和自动日报默认模型" }[activeTab.value]));
 const previewSrcdoc = computed(() => {
   const html = data.selectedItem?.readmeHtml;
   if (!html) return "";
@@ -27,7 +27,8 @@ onUnmounted(() => { document.removeEventListener("keydown", handleKeydown); if (
 </script>
 
 <template>
-  <div class="app-shell">
+  <RouterView v-if="route.name === 'public-report'" />
+  <div v-else class="app-shell">
     <aside class="sidebar"><div class="brand"><span class="brand-mark">AH</span><div><strong>AutomationHub</strong><span>采集管理</span></div></div>
       <span class="nav-label">工作台</span>
       <nav class="primary-nav" aria-label="主导航">
@@ -35,6 +36,11 @@ onUnmounted(() => { document.removeEventListener("keydown", handleKeydown); if (
         <RouterLink to="/devices" custom v-slot="{ navigate, isActive }"><button type="button" :class="{ active: isActive }" @click="navigate"><Monitor :size="18" aria-hidden="true" /><span>设备管理</span></button></RouterLink>
         <RouterLink to="/tasks" custom v-slot="{ navigate, isActive }"><button type="button" :class="{ active: isActive }" @click="navigate"><Activity :size="18" aria-hidden="true" /><span>任务中心</span></button></RouterLink>
         <RouterLink to="/monitoring" custom v-slot="{ navigate, isActive }"><button type="button" :class="{ active: isActive }" @click="navigate"><Wifi :size="18" aria-hidden="true" /><span>运行监控</span></button></RouterLink>
+        <RouterLink to="/reports" custom v-slot="{ navigate, isActive }"><button type="button" :class="{ active: isActive }" @click="navigate"><FileText :size="18" aria-hidden="true" /><span>日报中心</span></button></RouterLink>
+      </nav>
+      <span class="nav-label">系统设置</span>
+      <nav class="primary-nav" aria-label="系统设置">
+        <RouterLink to="/settings/models" custom v-slot="{ navigate, isActive }"><button type="button" :class="{ active: isActive }" @click="navigate"><Bot :size="18" aria-hidden="true" /><span>模型配置</span></button></RouterLink>
       </nav>
       <div class="sidebar-status" :data-state="data.connectionState"><Wifi :size="16" aria-hidden="true" /><div><span>API 状态</span><strong>{{ data.connectionLabel }}</strong></div></div>
     </aside>
@@ -48,7 +54,7 @@ onUnmounted(() => { document.removeEventListener("keydown", handleKeydown); if (
       <section v-if="activeTab === 'runs'" class="metrics-grid" aria-label="采集数据概览"><div class="metric-card"><span>当日批次</span><strong>{{ data.metrics.runs }}</strong><Activity :size="19" aria-hidden="true" /></div><div class="metric-card"><span>本页项目</span><strong>{{ data.metrics.projects }}</strong><Layers3 :size="19" aria-hidden="true" /></div><div class="metric-card" data-tone="success"><span>本页成功</span><strong>{{ data.metrics.success }}</strong><Database :size="19" aria-hidden="true" /></div><div class="metric-card" data-tone="danger"><span>本页失败</span><strong>{{ data.metrics.failed }}</strong><AlertCircle :size="19" aria-hidden="true" /></div></section>
       <section v-else-if="activeTab === 'devices'" class="metrics-grid compact-grid" aria-label="设备概览"><div class="metric-card"><span>设备总数</span><strong>{{ data.pagination.devices.total }}</strong><Monitor :size="19" aria-hidden="true" /></div><div class="metric-card" data-tone="success"><span>本页在线</span><strong>{{ data.metrics.onlineDevices }}</strong><Wifi :size="19" aria-hidden="true" /></div></section>
       <section v-else-if="activeTab === 'tasks'" class="metrics-grid compact-grid" aria-label="任务概览"><div class="metric-card"><span>任务总数</span><strong>{{ data.pagination.tasks.total }}</strong><Activity :size="19" aria-hidden="true" /></div><div class="metric-card"><span>本页进行中</span><strong>{{ data.metrics.pendingTasks }}</strong><RefreshCw :size="19" aria-hidden="true" /></div></section>
-      <section v-else class="metrics-grid compact-grid" aria-label="日志概览"><div class="metric-card"><span>日志总数</span><strong>{{ data.pagination.logs.total }}</strong><Activity :size="19" aria-hidden="true" /></div><div class="metric-card" data-tone="success"><span>在线设备</span><strong>{{ data.metrics.monitoringOnlineDevices }}</strong><Wifi :size="19" aria-hidden="true" /></div></section>
+      <section v-else-if="activeTab === 'monitoring'" class="metrics-grid compact-grid" aria-label="日志概览"><div class="metric-card"><span>日志总数</span><strong>{{ data.pagination.logs.total }}</strong><Activity :size="19" aria-hidden="true" /></div><div class="metric-card" data-tone="success"><span>在线设备</span><strong>{{ data.metrics.monitoringOnlineDevices }}</strong><Wifi :size="19" aria-hidden="true" /></div></section>
       <div class="view-host"><RouterView /></div>
     </main>
 

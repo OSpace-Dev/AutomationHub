@@ -29,3 +29,12 @@ export function requireInteger(object: Record<string, unknown>, field: string): 
   }
   return value as number;
 }
+
+export function optionalNonNegativeInteger(object: Record<string, unknown>, field: string): number | undefined {
+  const value = object[field];
+  if (value === undefined || value === null || value === "") return undefined;
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw invalidPayload(`${field} must be a non-negative integer`);
+  }
+  return value as number;
+}

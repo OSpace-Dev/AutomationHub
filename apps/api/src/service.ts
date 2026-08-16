@@ -252,6 +252,17 @@ export class CollectionService {
       if (task.status !== input.status && !isAllowedTaskTransition(task.status, input.status)) {
         throw new ApiError(409, "invalid_task_transition", `Cannot change task status from ${task.status} to ${input.status}`);
       }
+      const effectiveRunId = input.runId ?? task.runId;
+      if (input.status === "completed" && !effectiveRunId) {
+        throw invalidPayload("run_id is required when completing a collection task");
+      }
+      if (effectiveRunId) {
+        const run = data.runs.find((entry) => entry.id === effectiveRunId && entry.deviceId === deviceId);
+        if (!run) throw new ApiError(404, "run_not_found", "Collection run was not found", true);
+        if (run.businessDate !== task.businessDate) {
+          throw new ApiError(409, "task_run_mismatch", "Collection run business date does not match the task");
+        }
+      }
       task.status = input.status;
       if (input.runId) task.runId = input.runId;
       if (input.errorCode) task.errorCode = input.errorCode;

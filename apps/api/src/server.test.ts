@@ -137,10 +137,15 @@ test("materializes one-time and daily schedules without duplicate claims", async
   });
   assert.equal(secondClaimWhileRunning.body.data.task, null);
 
+  const onceRun = await request("/api/v1/collection-runs", {
+    method: "POST",
+    headers: { authorization: `Bearer ${scheduledToken}`, "idempotency-key": "once-schedule-run" },
+    body: JSON.stringify({ business_date: claimedOnce.body.data.task.business_date, source_url: "https://github.com/trending", filters: {} })
+  });
   await request(`/api/v1/devices/tasks/${claimedOnce.body.data.task.id}:status`, {
     method: "POST",
     headers: { authorization: `Bearer ${scheduledToken}` },
-    body: JSON.stringify({ status: "completed" })
+    body: JSON.stringify({ status: "completed", run_id: onceRun.body.data.id })
   });
 
   const dailyStartAt = new Date(Date.now() + 100).toISOString();
@@ -219,10 +224,15 @@ test("supports heartbeat, idempotent runs, partial uploads, and revoke", async (
   });
   assert.equal(deviceLog.response.status, 201);
 
+  const taskRun = await request("/api/v1/collection-runs", {
+    method: "POST",
+    headers: { authorization: `Bearer ${accessToken}`, "idempotency-key": "task-run-1" },
+    body: JSON.stringify({ business_date: "2026-08-09", source_url: "https://github.com/trending", filters: {} })
+  });
   const taskCompleted = await request(`/api/v1/devices/tasks/${taskId}:status`, {
     method: "POST",
     headers: { authorization: `Bearer ${accessToken}` },
-    body: JSON.stringify({ status: "completed", run_id: "run-pending" })
+    body: JSON.stringify({ status: "completed", run_id: taskRun.body.data.id })
   });
   assert.equal(taskCompleted.response.status, 200);
   assert.equal(taskCompleted.body.data.status, "completed");

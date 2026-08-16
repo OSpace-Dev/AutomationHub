@@ -15,7 +15,10 @@ const server = createApiServer({
   adminApiKey: process.env.ADMIN_API_KEY,
   authEnabled,
   corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:5173",
-  adminDistPath: process.env.ADMIN_DIST_PATH
+  adminDistPath: process.env.ADMIN_DIST_PATH,
+  modelEncryptionKey: process.env.MODEL_CONFIG_ENCRYPTION_KEY,
+  publicBaseUrl: process.env.PUBLIC_BASE_URL,
+  modelRequestMinIntervalMs: parseModelRequestMinInterval(process.env.MODEL_REQUEST_MIN_INTERVAL_MS)
 });
 
 server.listen(port, () => {
@@ -29,3 +32,11 @@ function shutdown(signal: string): void {
 
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+function parseModelRequestMinInterval(value: string | undefined): number {
+  if (value === undefined || value.trim() === "") return 60_000;
+  const parsed = Number(value);
+  if (Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= 2_147_483_647) return parsed;
+  console.warn("Invalid MODEL_REQUEST_MIN_INTERVAL_MS; using 60000ms");
+  return 60_000;
+}

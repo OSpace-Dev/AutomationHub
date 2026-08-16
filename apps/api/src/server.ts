@@ -1,11 +1,14 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
+import { ApiKeyVault } from "./crypto.js";
 import { ApiError, invalidPayload } from "./errors.js";
-import type { CollectionTask, ProjectSnapshot, RegistrationCode, RuntimeLogLevel, ScheduleRecurrence, TaskSchedule, TaskStatus, TaskType } from "./models.js";
+import type { CollectionTask, ProjectSnapshot, RegistrationCode, ReportGeneration, ReportGenerationStatus, ReportInsights, RuntimeLogLevel, ScheduleRecurrence, TaskSchedule, TaskStatus, TaskType } from "./models.js";
+import { ModelProviderService, OpenAiCompatibleClient } from "./model-service.js";
+import { ReportGenerationService } from "./report-service.js";
 import { CollectionService, type AuthorizationExpiry } from "./service.js";
 import type { Store } from "./store.js";
-import { optionalString, requireInteger, requireObject, requireString } from "./validation.js";
+import { optionalNonNegativeInteger, optionalString, requireInteger, requireObject, requireString } from "./validation.js";
 
 interface ServerOptions {
   store: Store;
@@ -13,25 +16,42 @@ interface ServerOptions {
   corsOrigin: string;
   authEnabled?: boolean;
   adminDistPath?: string;
+  modelEncryptionKey?: string;
+  publicBaseUrl?: string;
+  modelFetch?: typeof fetch;
+  modelRequestMinIntervalMs?: number;
 }
 
 export function createApiServer(options: ServerOptions): Server {
   const service = new CollectionService(options.store);
-  return createServer(async (request, response) => {
+  const providers = new ModelProviderService(options.store, new ApiKeyVault(options.modelEncryptionKey), new OpenAiCompatibleClient(options.modelFetch ?? fetch));
+  const reports = new ReportGenerationService(options.store, providers, {
+    modelRequestMinIntervalMs: options.modelRequestMinIntervalMs
+  });
+  void reports.start();
+  const server = createServer(async (request, response) => {
     try {
-      await routeRequest(request, response, service, options);
+      await routeRequest(request, response, service, providers, reports, options);
     } catch (error) {
       handleError(response, error, options.corsOrigin);
     }
   });
+  server.on("close", () => reports.stop());
+  return server;
 }
 
-async function routeRequest(request: IncomingMessage, response: ServerResponse, service: CollectionService, options: ServerOptions): Promise<void> {
+async function routeRequest(request: IncomingMessage, response: ServerResponse, service: CollectionService, providers: ModelProviderService, reports: ReportGenerationService, options: ServerOptions): Promise<void> {
   if (request.method === "OPTIONS") return writeJson(response, 204, {}, options.corsOrigin);
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
 
   if (request.method === "GET" && url.pathname === "/health") {
     return writeJson(response, 200, { status: "ok", service: "automation-hub-api" }, options.corsOrigin);
+  }
+
+  const publicReportMatch = url.pathname.match(/^\/api\/v1\/public\/reports\/([^/]+)$/);
+  if (request.method === "GET" && publicReportMatch) {
+    const report = await reports.getPublic(decodeURIComponent(publicReportMatch[1]));
+    return writeJson(response, 200, { status: "success", data: serializePublicReport(report) }, options.corsOrigin);
   }
 
   if (request.method === "POST" && url.pathname === "/api/v1/devices/register") {
@@ -85,6 +105,13 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse, 
       runId: optionalString(body, "run_id") || undefined,
       errorCode: optionalString(body, "error_code") || undefined
     });
+    if (task.status === "completed") {
+      try {
+        await reports.enqueueAutomatic(task.runId);
+      } catch (error) {
+        console.error("Automatic report enqueue failed", error instanceof ApiError ? error.code : "unknown_error");
+      }
+    }
     return writeJson(response, 200, { status: "success", data: serializeTask(task) }, options.corsOrigin);
   }
 
@@ -154,6 +181,79 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse, 
   if (request.method === "GET" && url.pathname === "/api/v1/admin/authorizations") {
     const authorizations = await service.listRegistrationCodes(readPage(url), readPageSize(url));
     return writeJson(response, 200, { status: "success", data: authorizations.items.map(serializeAuthorization), meta: pageMeta(authorizations) }, options.corsOrigin);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/v1/admin/model-providers") {
+    const modelProviders = await providers.list();
+    return writeJson(response, 200, { status: "success", data: modelProviders.map(serializeModelProvider) }, options.corsOrigin);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/v1/admin/model-providers") {
+    const body = requireObject(await readJson(request));
+    const provider = await providers.create({
+      name: requireString(body, "name"),
+      baseUrl: requireString(body, "base_url"),
+      apiKey: requireString(body, "api_key"),
+      selectedModel: requireString(body, "selected_model"),
+      isDefault: optionalBoolean(body, "is_default", true)
+    });
+    return writeJson(response, 201, { status: "success", data: serializeModelProvider(provider) }, options.corsOrigin);
+  }
+
+  const modelProviderMatch = url.pathname.match(/^\/api\/v1\/admin\/model-providers\/([^/:]+)$/);
+  if (request.method === "PUT" && modelProviderMatch) {
+    const body = requireObject(await readJson(request));
+    const provider = await providers.update(decodeURIComponent(modelProviderMatch[1]), {
+      name: body.name === undefined ? undefined : requireString(body, "name"),
+      baseUrl: body.base_url === undefined ? undefined : requireString(body, "base_url"),
+      apiKey: body.api_key === undefined ? undefined : optionalString(body, "api_key") || undefined,
+      selectedModel: body.selected_model === undefined ? undefined : requireString(body, "selected_model"),
+      isDefault: body.is_default === undefined ? undefined : optionalBoolean(body, "is_default")
+    });
+    return writeJson(response, 200, { status: "success", data: serializeModelProvider(provider) }, options.corsOrigin);
+  }
+
+  if (request.method === "DELETE" && modelProviderMatch) {
+    const provider = await providers.remove(decodeURIComponent(modelProviderMatch[1]));
+    return writeJson(response, 200, { status: "success", data: serializeModelProvider(provider) }, options.corsOrigin);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/v1/admin/model-providers/models:fetch") {
+    const body = requireObject(await readJson(request));
+    const models = await providers.fetchModels({
+      providerId: optionalString(body, "provider_id") || undefined,
+      baseUrl: optionalString(body, "base_url") || undefined,
+      apiKey: optionalString(body, "api_key") || undefined
+    });
+    return writeJson(response, 200, { status: "success", data: models }, options.corsOrigin);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/v1/admin/reports") {
+    const result = await reports.list({
+      date: url.searchParams.get("date") ?? undefined,
+      status: url.searchParams.get("status") ? parseReportStatus(url.searchParams.get("status") as string) : undefined,
+      page: readPage(url),
+      pageSize: readPageSize(url)
+    });
+    return writeJson(response, 200, { status: "success", data: result.items.map((report) => serializeReportSummary(report, options.publicBaseUrl)), meta: pageMeta(result) }, options.corsOrigin);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/v1/admin/reports") {
+    const body = requireObject(await readJson(request));
+    const generation = await reports.createManual(requireString(body, "run_id"));
+    return writeJson(response, 202, { status: "success", data: serializeReport(generation, options.publicBaseUrl) }, options.corsOrigin);
+  }
+
+  const reportRetryMatch = url.pathname.match(/^\/api\/v1\/admin\/reports\/([^/:]+):retry$/);
+  if (request.method === "POST" && reportRetryMatch) {
+    const generation = await reports.retry(decodeURIComponent(reportRetryMatch[1]));
+    return writeJson(response, 202, { status: "success", data: serializeReport(generation, options.publicBaseUrl) }, options.corsOrigin);
+  }
+
+  const reportDetailMatch = url.pathname.match(/^\/api\/v1\/admin\/reports\/([^/:]+)$/);
+  if (request.method === "GET" && reportDetailMatch) {
+    const generation = await reports.get(decodeURIComponent(reportDetailMatch[1]));
+    return writeJson(response, 200, { status: "success", data: serializeReport(generation, options.publicBaseUrl) }, options.corsOrigin);
   }
 
   const deleteAuthorizationMatch = url.pathname.match(/^\/api\/v1\/admin\/authorizations\/([^/]+)$/);
@@ -267,6 +367,10 @@ function parseSnapshotInput(value: unknown): Omit<ProjectSnapshot, "id" | "runId
     projectUrl: requireString(item, "project_url"),
     rank: requireInteger(item, "rank"),
     name: requireString(item, "name"),
+    description: optionalString(item, "description") || undefined,
+    language: optionalString(item, "language") || undefined,
+    totalStars: optionalNonNegativeInteger(item, "total_stars"),
+    starsToday: optionalNonNegativeInteger(item, "stars_today"),
     readmeHtml: optionalString(item, "readme_html"),
     readmeText: optionalString(item, "readme_text"),
     readAt: requireString(item, "read_at"),
@@ -289,6 +393,13 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 function requireHeader(request: IncomingMessage, name: string): string {
   const value = request.headers[name];
   if (typeof value !== "string" || value.trim() === "") throw invalidPayload(`${name} header is required`);
+  return value;
+}
+
+function optionalBoolean(object: Record<string, unknown>, field: string, fallback?: boolean): boolean {
+  const value = object[field];
+  if (value === undefined && fallback !== undefined) return fallback;
+  if (typeof value !== "boolean") throw invalidPayload(`${field} must be a boolean`);
   return value;
 }
 
@@ -394,6 +505,120 @@ function serializeLog(log: { id: string; deviceId: string; taskId?: string; leve
   };
 }
 
+function serializeModelProvider(provider: { id: string; name: string; baseUrl: string; apiKeyConfigured: boolean; apiKeyHint: string; selectedModel: string; isDefault: boolean; status: string; lastModelsFetchedAt?: string; lastError?: string; createdAt: string; updatedAt: string }) {
+  return {
+    id: provider.id,
+    name: provider.name,
+    base_url: provider.baseUrl,
+    api_key_configured: provider.apiKeyConfigured,
+    api_key_hint: provider.apiKeyHint,
+    selected_model: provider.selectedModel,
+    is_default: provider.isDefault,
+    status: provider.status,
+    last_models_fetched_at: provider.lastModelsFetchedAt,
+    last_error: provider.lastError,
+    created_at: provider.createdAt,
+    updated_at: provider.updatedAt
+  };
+}
+
+function serializeReport(report: ReportGeneration, publicBaseUrl?: string) {
+  return {
+    id: report.id,
+    definition_id: report.definitionId,
+    source_type: report.sourceType,
+    business_date: report.businessDate,
+    run_id: report.runId,
+    trigger: report.trigger,
+    status: report.status,
+    provider_name: report.providerName,
+    model: report.model,
+    input_item_count: report.inputItemCount,
+    attempt_count: report.attemptCount,
+    content: report.content,
+    insights: report.insights ? serializeReportInsights(report.insights) : undefined,
+    error_code: report.errorCode,
+    error_message: report.errorMessage,
+    parent_generation_id: report.parentGenerationId,
+    public_url: report.status === "completed" && report.shareToken && publicBaseUrl ? `${publicBaseUrl.replace(/\/+$/, "")}/share/reports/${encodeURIComponent(report.shareToken)}` : undefined,
+    created_at: report.createdAt,
+    started_at: report.startedAt,
+    completed_at: report.completedAt
+  };
+}
+
+function serializeReportSummary(report: Parameters<typeof serializeReport>[0], publicBaseUrl?: string) {
+  const { content: _content, ...summary } = serializeReport(report, publicBaseUrl);
+  return summary;
+}
+
+function serializePublicReport(report: { businessDate: string; sourceType: string; content: string; insights?: ReportInsights; completedAt?: string }) {
+  return {
+    business_date: report.businessDate,
+    source_type: report.sourceType,
+    content: report.content,
+    insights: report.insights ? serializeReportInsights(report.insights) : undefined,
+    completed_at: report.completedAt
+  };
+}
+
+function serializeReportInsights(insights: ReportInsights) {
+  const serializeProject = (project: ReportInsights["categories"][number]["projects"][number]) => ({
+    project_url: project.projectUrl,
+    name: project.name,
+    rank: project.rank,
+    category: project.category,
+    purpose: project.purpose,
+    attention_reason: project.attentionReason,
+    description: project.description,
+    language: project.language,
+    total_stars: project.totalStars,
+    stars_today: project.starsToday,
+    total_stars_delta: project.totalStarsDelta
+  });
+  const serializeTrend = (project: ReportInsights["trends"]["newEntries"][number]) => ({
+    project_url: project.projectUrl,
+    name: project.name,
+    current_rank: project.currentRank,
+    previous_rank: project.previousRank,
+    rank_change: project.rankChange,
+    total_stars_delta: project.totalStarsDelta
+  });
+  return {
+    presentation_version: insights.presentationVersion,
+    overview: insights.overview,
+    metrics: {
+      project_count: insights.metrics.projectCount,
+      total_stars: insights.metrics.totalStars,
+      stars_today: insights.metrics.starsToday,
+      category_count: insights.metrics.categoryCount,
+      total_stars_delta: insights.metrics.totalStarsDelta,
+      known_total_stars_count: insights.metrics.knownTotalStarsCount,
+      known_stars_today_count: insights.metrics.knownStarsTodayCount,
+      comparable_project_count: insights.metrics.comparableProjectCount,
+      analysis_fallback_count: insights.metrics.analysisFallbackCount
+    },
+    categories: insights.categories.map((category) => ({
+      key: category.key,
+      label: category.label,
+      project_count: category.projectCount,
+      total_stars: category.totalStars,
+      stars_today: category.starsToday,
+      projects: category.projects.map(serializeProject)
+    })),
+    trends: {
+      has_comparison: insights.trends.hasComparison,
+      comparison_date: insights.trends.comparisonDate,
+      new_entries: insights.trends.newEntries.map(serializeTrend),
+      continued_entries: insights.trends.continuedEntries.map(serializeTrend),
+      exited_entries: insights.trends.exitedEntries.map(serializeTrend),
+      rising_entries: insights.trends.risingEntries.map(serializeTrend),
+      falling_entries: insights.trends.fallingEntries.map(serializeTrend),
+      unchanged_entries: insights.trends.unchangedEntries.map(serializeTrend)
+    }
+  };
+}
+
 function parseTaskType(value: string): TaskType {
   if (value !== "capture_trending") throw invalidPayload("type must be capture_trending");
   return value;
@@ -422,12 +647,18 @@ function parseLogLevel(value: string): RuntimeLogLevel {
   return value as RuntimeLogLevel;
 }
 
+function parseReportStatus(value: string): ReportGenerationStatus {
+  const values: ReportGenerationStatus[] = ["pending", "running", "completed", "failed"];
+  if (!values.includes(value as ReportGenerationStatus)) throw invalidPayload("status is invalid");
+  return value as ReportGenerationStatus;
+}
+
 function writeJson(response: ServerResponse, statusCode: number, payload: unknown, corsOrigin: string): void {
   response.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
     "access-control-allow-origin": corsOrigin,
     "access-control-allow-headers": "content-type, authorization, idempotency-key, x-admin-key, x-device-id",
-    "access-control-allow-methods": "GET,POST,DELETE,OPTIONS"
+    "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS"
   });
   response.end(statusCode === 204 ? undefined : JSON.stringify(payload));
 }
