@@ -1,0 +1,37 @@
+:root {
+  --el-color-primary: #2563eb;
+  --el-color-primary-light-3: #5e8df2;
+  --el-color-primary-light-5: #93b2f7;
+  --el-color-primary-light-7: #c3d4fb;
+  --el-color-primary-light-9: #e8f0ff;
+  --el-color-primary-dark-2: #1d4ed8;
+  --el-color-success: #198653;
+  --el-color-danger: #c83d3d;
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-border-radius-round: 999px;
+  --el-box-shadow-light: 0 12px 32px rgba(53, 84, 142, 0.12);
+  --el-fill-color-light: #f4f7ff;
+  --el-fill-color-blank: #fff;
+  --el-bg-color: #fff;
+  --el-text-color-primary: #172b4d;
+  --el-text-color-regular: #526987;
+  --el-text-color-placeholder: #8da1b7;
+  --el-border-color: #dce7f6;
+  --el-border-color-light: #e7eef7;
+}
+
+.el-popper.is-light {
+  border-color: var(--el-border-color);
+  box-shadow: var(--el-box-shadow-light);
+}
+
+.el-select-dropdown__item {
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+}
+
+.el-select-dropdown__item.is-selected {
+  color: var(--el-color-primary);
+  font-weight: 700;
+}

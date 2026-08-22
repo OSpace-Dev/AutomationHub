@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import type { ModelProvider, PageMeta, ReportDelivery, ReportGeneration, ReportStatus, Run } from "./admin-models";
-import { apiFetch } from "./useAdminData";
+import { apiFetch } from "./composables/apiClient";
 
 const today = formatLocalDate(new Date());
 const reportsDate = ref("");
@@ -75,14 +75,17 @@ async function refreshReports(options: { background?: boolean } = {}) {
     ]);
     if (sequence !== reportListRequestSequence) return;
     reports.value = response.data;
-    defaultProviderConfigured.value = providersResponse.data.some((provider) => provider.is_default && provider.status === "active");
+    defaultProviderConfigured.value = providersResponse.data.some(
+      (provider) => provider.is_default && provider.status === "active"
+    );
     if (response.meta) reportPagination.value = response.meta;
     if (selectedReport.value) {
       const latest = reports.value.find((entry) => entry.id === selectedReport.value?.id);
       if (latest) await selectReport(latest, { background: true });
     }
   } catch (error) {
-    if (sequence === reportListRequestSequence) reportError.value = error instanceof Error ? error.message : "日报读取失败。";
+    if (sequence === reportListRequestSequence)
+      reportError.value = error instanceof Error ? error.message : "日报读取失败。";
   } finally {
     if (sequence === reportListRequestSequence) reportLoading.value = false;
   }
@@ -91,7 +94,9 @@ async function refreshReports(options: { background?: boolean } = {}) {
 async function refreshReportRuns() {
   reportError.value = "";
   try {
-    const response = await apiFetch<Run[]>(`/api/v1/admin/runs?date=${encodeURIComponent(reportGenerationDate.value)}&page=1&page_size=100`);
+    const response = await apiFetch<Run[]>(
+      `/api/v1/admin/runs?date=${encodeURIComponent(reportGenerationDate.value)}&page=1&page_size=100`
+    );
     reportRuns.value = response.data;
   } catch (error) {
     reportRuns.value = [];
@@ -121,11 +126,14 @@ async function selectReport(report: ReportGeneration, options: { background?: bo
     const response = await apiFetch<ReportGeneration>(`/api/v1/admin/reports/${encodeURIComponent(report.id)}`);
     if (sequence === reportRequestSequence) {
       selectedReport.value = response.data;
-      const deliveries = await apiFetch<ReportDelivery[]>(`/api/v1/admin/reports/${encodeURIComponent(report.id)}/deliveries`);
+      const deliveries = await apiFetch<ReportDelivery[]>(
+        `/api/v1/admin/reports/${encodeURIComponent(report.id)}/deliveries`
+      );
       if (sequence === reportRequestSequence) reportDeliveries.value = deliveries.data;
     }
   } catch (error) {
-    if (sequence === reportRequestSequence) reportError.value = error instanceof Error ? error.message : "日报详情读取失败。";
+    if (sequence === reportRequestSequence)
+      reportError.value = error instanceof Error ? error.message : "日报详情读取失败。";
   } finally {
     if (!options.background && sequence === reportRequestSequence) reportDetailLoading.value = false;
   }
@@ -133,10 +141,17 @@ async function selectReport(report: ReportGeneration, options: { background?: bo
 
 async function sendReport(report: ReportGeneration) {
   if (report.status !== "completed") return;
-  if (reportDeliveries.value.length && !window.confirm("确认重新发送这份日报吗？当前启用的 Telegram 目标将再次收到消息。")) return;
+  if (
+    reportDeliveries.value.length &&
+    !window.confirm("确认重新发送这份日报吗？当前启用的 Telegram 目标将再次收到消息。")
+  )
+    return;
   startReportAction("send");
   try {
-    const response = await apiFetch<ReportDelivery[]>(`/api/v1/admin/reports/${encodeURIComponent(report.id)}/deliveries`, { method: "POST" });
+    const response = await apiFetch<ReportDelivery[]>(
+      `/api/v1/admin/reports/${encodeURIComponent(report.id)}/deliveries`,
+      { method: "POST" }
+    );
     reportNotice.value = response.data.length
       ? `已提交 ${response.data.length} 个启用目标，发送状态会自动更新。`
       : "没有可用的 Telegram 目标，请先启用 Bot 和会话目标。";
@@ -151,7 +166,9 @@ async function sendReport(report: ReportGeneration) {
 async function retryDelivery(delivery: ReportDelivery) {
   startReportAction("retry-delivery");
   try {
-    await apiFetch<ReportDelivery>(`/api/v1/admin/report-deliveries/${encodeURIComponent(delivery.id)}:retry`, { method: "POST" });
+    await apiFetch<ReportDelivery>(`/api/v1/admin/report-deliveries/${encodeURIComponent(delivery.id)}:retry`, {
+      method: "POST"
+    });
     reportNotice.value = "失败目标已重新排队。";
     if (selectedReport.value) await selectReport(selectedReport.value);
   } catch (error) {
@@ -165,7 +182,10 @@ async function createReport(runId: string) {
   if (!runId) return false;
   startReportAction("create");
   try {
-    const response = await apiFetch<ReportGeneration>("/api/v1/admin/reports", { method: "POST", body: JSON.stringify({ run_id: runId }) });
+    const response = await apiFetch<ReportGeneration>("/api/v1/admin/reports", {
+      method: "POST",
+      body: JSON.stringify({ run_id: runId })
+    });
     reportNotice.value = "日报生成任务已创建。";
     await refreshReports();
     const created = reports.value.find((entry) => entry.id === response.data.id) ?? response.data;
@@ -182,7 +202,9 @@ async function createReport(runId: string) {
 async function retryReport(report: ReportGeneration) {
   startReportAction("regenerate");
   try {
-    const response = await apiFetch<ReportGeneration>(`/api/v1/admin/reports/${encodeURIComponent(report.id)}:retry`, { method: "POST" });
+    const response = await apiFetch<ReportGeneration>(`/api/v1/admin/reports/${encodeURIComponent(report.id)}:retry`, {
+      method: "POST"
+    });
     reportNotice.value = "已创建新的日报生成记录，原结果仍然保留。";
     await refreshReports();
     await selectReport(reports.value.find((entry) => entry.id === response.data.id) ?? response.data);
@@ -225,15 +247,28 @@ function formatReportTime(value?: string) {
 }
 
 function reportStatusLabel(status: ReportStatus) {
-  return ({ pending: "待生成", running: "生成中", completed: "已完成", failed: "失败" } as Record<ReportStatus, string>)[status];
+  return (
+    { pending: "待生成", running: "生成中", completed: "已完成", failed: "失败" } as Record<ReportStatus, string>
+  )[status];
 }
 
 function deliveryStatusLabel(status: ReportDelivery["status"]) {
-  return ({ pending: "待发送", sending: "发送中", sent: "已发送", failed: "发送失败" } as Record<ReportDelivery["status"], string>)[status];
+  return (
+    { pending: "待发送", sending: "发送中", sent: "已发送", failed: "发送失败" } as Record<
+      ReportDelivery["status"],
+      string
+    >
+  )[status];
 }
 
 function deliveryStatusTone(status: ReportDelivery["status"]) {
-  return status === "sent" ? "success" : status === "failed" ? "failed" : status === "sending" || status === "pending" ? "pending" : "";
+  return status === "sent"
+    ? "success"
+    : status === "failed"
+      ? "failed"
+      : status === "sending" || status === "pending"
+        ? "pending"
+        : "";
 }
 
 function formatLocalDate(value: Date) {

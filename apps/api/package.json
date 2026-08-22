@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node --enable-source-maps dist/index.js",
-    "test": "tsx --test src/server.test.ts src/reporting.test.ts src/sqlite-store.test.ts src/postgres-store.test.ts src/telegram-service.test.ts src/notification-service.test.ts",
+    "test": "tsx --test src/server.test.ts src/reporting.test.ts src/sqlite-store.test.ts src/postgres-store.test.ts src/telegram-service.test.ts src/notification-service.test.ts src/collection-query.test.ts",
     "typecheck": "tsc -p tsconfig.json",
     "build": "tsc -p tsconfig.build.json"
   },

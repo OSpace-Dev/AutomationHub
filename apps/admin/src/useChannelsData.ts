@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import type { NotificationChannel, NotificationTarget, TelegramChat } from "./admin-models";
-import { apiFetch } from "./useAdminData";
+import { apiFetch } from "./composables/apiClient";
 
 const channels = ref<NotificationChannel[]>([]);
 const selectedChannel = ref<NotificationChannel | null>(null);
@@ -142,7 +142,11 @@ async function saveChannel() {
 }
 
 async function clearProxy() {
-  if (!selectedChannel.value?.proxy_configured || !window.confirm("清空后需要重新填写代理 URL 才能再次启用。确认清空吗？")) return;
+  if (
+    !selectedChannel.value?.proxy_configured ||
+    !window.confirm("清空后需要重新填写代理 URL 才能再次启用。确认清空吗？")
+  )
+    return;
   channelActionLoading.value = true;
   channelError.value = "";
   try {
@@ -163,11 +167,17 @@ async function clearProxy() {
 }
 
 async function deleteChannel() {
-  if (!selectedChannel.value || !window.confirm("删除该 Bot 会同时删除它的 chat 目标，历史日报记录会保留。确认继续吗？")) return;
+  if (
+    !selectedChannel.value ||
+    !window.confirm("删除该 Bot 会同时删除它的 chat 目标，历史日报记录会保留。确认继续吗？")
+  )
+    return;
   channelActionLoading.value = true;
   channelError.value = "";
   try {
-    await apiFetch(`/api/v1/admin/notification-channels/${encodeURIComponent(selectedChannel.value.id)}`, { method: "DELETE" });
+    await apiFetch(`/api/v1/admin/notification-channels/${encodeURIComponent(selectedChannel.value.id)}`, {
+      method: "DELETE"
+    });
     newChannel();
     await refreshChannels();
   } catch (error) {
@@ -182,7 +192,10 @@ async function verifyChannel() {
   channelActionLoading.value = true;
   channelError.value = "";
   try {
-    const response = await apiFetch<NotificationChannel>(`/api/v1/admin/notification-channels/${encodeURIComponent(selectedChannel.value.id)}:verify`, { method: "POST" });
+    const response = await apiFetch<NotificationChannel>(
+      `/api/v1/admin/notification-channels/${encodeURIComponent(selectedChannel.value.id)}:verify`,
+      { method: "POST" }
+    );
     selectedChannel.value = response.data;
     const index = channels.value.findIndex((channel) => channel.id === response.data.id);
     if (index >= 0) channels.value[index] = response.data;
@@ -209,10 +222,17 @@ async function saveTarget() {
   channelError.value = "";
   try {
     const path = `/api/v1/admin/notification-channels/${encodeURIComponent(selectedChannel.value.id)}/targets`;
-    await apiFetch<NotificationTarget>(editingTargetId.value ? `${path}/${encodeURIComponent(editingTargetId.value)}` : path, {
-      method: editingTargetId.value ? "PUT" : "POST",
-      body: JSON.stringify({ name: targetForm.value.name, chat_id: targetForm.value.chatId, enabled: targetForm.value.enabled })
-    });
+    await apiFetch<NotificationTarget>(
+      editingTargetId.value ? `${path}/${encodeURIComponent(editingTargetId.value)}` : path,
+      {
+        method: editingTargetId.value ? "PUT" : "POST",
+        body: JSON.stringify({
+          name: targetForm.value.name,
+          chat_id: targetForm.value.chatId,
+          enabled: targetForm.value.enabled
+        })
+      }
+    );
     const channel = selectedChannel.value;
     newTarget();
     await refreshTargets(channel);
@@ -230,7 +250,10 @@ async function deleteTarget(target: NotificationTarget) {
   targetActionLoading.value = true;
   channelError.value = "";
   try {
-    await apiFetch(`/api/v1/admin/notification-channels/${encodeURIComponent(selectedChannel.value.id)}/targets/${encodeURIComponent(target.id)}`, { method: "DELETE" });
+    await apiFetch(
+      `/api/v1/admin/notification-channels/${encodeURIComponent(selectedChannel.value.id)}/targets/${encodeURIComponent(target.id)}`,
+      { method: "DELETE" }
+    );
     if (editingTargetId.value === target.id) newTarget();
     await refreshTargets(selectedChannel.value);
   } catch (error) {
@@ -244,10 +267,13 @@ async function refreshTargets(channel: NotificationChannel, sequence = ++targetR
   targetLoading.value = true;
   channelError.value = "";
   try {
-    const response = await apiFetch<NotificationTarget[]>(`/api/v1/admin/notification-channels/${encodeURIComponent(channel.id)}/targets`);
+    const response = await apiFetch<NotificationTarget[]>(
+      `/api/v1/admin/notification-channels/${encodeURIComponent(channel.id)}/targets`
+    );
     if (sequence === targetRequestSequence && selectedChannel.value?.id === channel.id) targets.value = response.data;
   } catch (error) {
-    if (sequence === targetRequestSequence) channelError.value = error instanceof Error ? error.message : "Telegram 目标读取失败。";
+    if (sequence === targetRequestSequence)
+      channelError.value = error instanceof Error ? error.message : "Telegram 目标读取失败。";
   } finally {
     if (sequence === targetRequestSequence) targetLoading.value = false;
   }
@@ -258,7 +284,10 @@ async function testTarget(target: NotificationTarget) {
   testingTargetId.value = target.id;
   channelError.value = "";
   try {
-    await apiFetch(`/api/v1/admin/notification-channels/${encodeURIComponent(selectedChannel.value.id)}/targets/${encodeURIComponent(target.id)}:test`, { method: "POST" });
+    await apiFetch(
+      `/api/v1/admin/notification-channels/${encodeURIComponent(selectedChannel.value.id)}/targets/${encodeURIComponent(target.id)}:test`,
+      { method: "POST" }
+    );
   } catch (error) {
     channelError.value = error instanceof Error ? error.message : "Telegram 测试消息发送失败。";
   } finally {
@@ -278,7 +307,8 @@ async function discoverChats() {
     );
     if (sequence === chatRequestSequence && selectedChannel.value?.id === channel.id) chats.value = response.data;
   } catch (error) {
-    if (sequence === chatRequestSequence) channelError.value = error instanceof Error ? error.message : "Telegram 会话读取失败。";
+    if (sequence === chatRequestSequence)
+      channelError.value = error instanceof Error ? error.message : "Telegram 会话读取失败。";
   } finally {
     if (sequence === chatRequestSequence) chatLoading.value = false;
   }
@@ -287,7 +317,11 @@ async function discoverChats() {
 function selectChat(chat: TelegramChat) {
   editingTargetId.value = "";
   targetForm.value = {
-    name: chat.title || [chat.first_name, chat.last_name].filter(Boolean).join(" ") || chat.username || `Telegram ${chat.type}`,
+    name:
+      chat.title ||
+      [chat.first_name, chat.last_name].filter(Boolean).join(" ") ||
+      chat.username ||
+      `Telegram ${chat.type}`,
     chatId: chat.id,
     enabled: true
   };
@@ -304,7 +338,8 @@ async function testChat(chat: TelegramChat) {
       { method: "POST" }
     );
   } catch (error) {
-    if (selectedChannel.value?.id === channel.id) channelError.value = error instanceof Error ? error.message : "Telegram 测试消息发送失败。";
+    if (selectedChannel.value?.id === channel.id)
+      channelError.value = error instanceof Error ? error.message : "Telegram 测试消息发送失败。";
   } finally {
     if (selectedChannel.value?.id === channel.id) testingChatId.value = "";
   }

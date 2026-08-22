@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import type { ModelDescriptor, ModelProvider } from "./admin-models";
-import { apiFetch } from "./useAdminData";
+import { apiFetch } from "./composables/apiClient";
 
 const providers = ref<ModelProvider[]>([]);
 const selectedProvider = ref<ModelProvider | null>(null);
@@ -12,7 +12,22 @@ const modelFetchLoading = ref(false);
 const providerForm = ref({ name: "", baseUrl: "", apiKey: "", selectedModel: "", isDefault: true });
 
 export function useModelProvidersData() {
-  return { providers, selectedProvider, providerLoading, providerActionLoading, providerError, availableModels, modelFetchLoading, providerForm, refreshProviders, selectProvider, newProvider, fetchModels, saveProvider, deleteProvider };
+  return {
+    providers,
+    selectedProvider,
+    providerLoading,
+    providerActionLoading,
+    providerError,
+    availableModels,
+    modelFetchLoading,
+    providerForm,
+    refreshProviders,
+    selectProvider,
+    newProvider,
+    fetchModels,
+    saveProvider,
+    deleteProvider
+  };
 }
 
 async function refreshProviders() {
@@ -36,13 +51,25 @@ async function refreshProviders() {
 
 function selectProvider(provider: ModelProvider) {
   selectedProvider.value = provider;
-  providerForm.value = { name: provider.name, baseUrl: provider.base_url, apiKey: "", selectedModel: provider.selected_model, isDefault: provider.is_default };
+  providerForm.value = {
+    name: provider.name,
+    baseUrl: provider.base_url,
+    apiKey: "",
+    selectedModel: provider.selected_model,
+    isDefault: provider.is_default
+  };
   availableModels.value = [];
 }
 
 function newProvider() {
   selectedProvider.value = null;
-  providerForm.value = { name: "", baseUrl: "", apiKey: "", selectedModel: "", isDefault: providers.value.length === 0 };
+  providerForm.value = {
+    name: "",
+    baseUrl: "",
+    apiKey: "",
+    selectedModel: "",
+    isDefault: providers.value.length === 0
+  };
   availableModels.value = [];
   providerError.value = "";
 }
@@ -72,11 +99,22 @@ async function saveProvider() {
   providerActionLoading.value = true;
   providerError.value = "";
   try {
-    const body: Record<string, unknown> = { name: providerForm.value.name, base_url: providerForm.value.baseUrl, selected_model: providerForm.value.selectedModel, is_default: providerForm.value.isDefault };
+    const body: Record<string, unknown> = {
+      name: providerForm.value.name,
+      base_url: providerForm.value.baseUrl,
+      selected_model: providerForm.value.selectedModel,
+      is_default: providerForm.value.isDefault
+    };
     if (providerForm.value.apiKey) body.api_key = providerForm.value.apiKey;
     const response = selectedProvider.value
-      ? await apiFetch<ModelProvider>(`/api/v1/admin/model-providers/${encodeURIComponent(selectedProvider.value.id)}`, { method: "PUT", body: JSON.stringify(body) })
-      : await apiFetch<ModelProvider>("/api/v1/admin/model-providers", { method: "POST", body: JSON.stringify({ ...body, api_key: providerForm.value.apiKey }) });
+      ? await apiFetch<ModelProvider>(
+          `/api/v1/admin/model-providers/${encodeURIComponent(selectedProvider.value.id)}`,
+          { method: "PUT", body: JSON.stringify(body) }
+        )
+      : await apiFetch<ModelProvider>("/api/v1/admin/model-providers", {
+          method: "POST",
+          body: JSON.stringify({ ...body, api_key: providerForm.value.apiKey })
+        });
     await refreshProviders();
     const saved = providers.value.find((entry) => entry.id === response.data.id) ?? response.data;
     selectProvider(saved);
@@ -92,7 +130,9 @@ async function deleteProvider() {
   providerActionLoading.value = true;
   providerError.value = "";
   try {
-    await apiFetch(`/api/v1/admin/model-providers/${encodeURIComponent(selectedProvider.value.id)}`, { method: "DELETE" });
+    await apiFetch(`/api/v1/admin/model-providers/${encodeURIComponent(selectedProvider.value.id)}`, {
+      method: "DELETE"
+    });
     newProvider();
     await refreshProviders();
   } catch (error) {

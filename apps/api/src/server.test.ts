@@ -6,6 +6,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { createApiServer } from "./server.js";
 import { FileStore } from "./store.js";
+import { parseAuthEnabled } from "./main/config.js";
 
 let baseUrl = "";
 let registrationCode = "test-registration-code";
@@ -15,11 +16,21 @@ let runId = "";
 let server: ReturnType<typeof createApiServer>;
 let temporaryDirectory = "";
 
+test("derives authentication from the admin key and rejects invalid values", () => {
+  assert.equal(parseAuthEnabled(undefined, undefined), false);
+  assert.equal(parseAuthEnabled(undefined, "admin-key"), true);
+  assert.equal(parseAuthEnabled("", "admin-key"), true);
+  assert.equal(parseAuthEnabled("true", undefined), true);
+  assert.equal(parseAuthEnabled("false", "admin-key"), false);
+  assert.throws(() => parseAuthEnabled("TRUE", undefined), /AUTH_ENABLED must be true or false/);
+  assert.throws(() => parseAuthEnabled("yes", undefined), /AUTH_ENABLED must be true or false/);
+});
+
 before(async () => {
   temporaryDirectory = await mkdtemp(join(tmpdir(), "automation-hub-"));
   const store = new FileStore(join(temporaryDirectory, "store.json"));
   await store.initialize(registrationCode);
-  server = createApiServer({ store, adminApiKey: "admin-test-key", corsOrigin: "http://localhost:5173" });
+  server = createApiServer({ store, adminApiKey: "admin-test-key", authEnabled: true, corsOrigin: "http://localhost:5173" });
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const address = server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${address.port}`;
