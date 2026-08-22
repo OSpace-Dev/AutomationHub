@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
-import { Activity, AlertCircle, Bot, Database, ExternalLink, FileText, KeyRound, Layers3, LockKeyhole, Maximize2, Minimize2, Monitor, RefreshCw, Send, Server, Settings, Wifi, X } from "lucide-vue-next";
+import { Activity, AlertCircle, Bot, Database, ExternalLink, FileText, KeyRound, LockKeyhole, Maximize2, Minimize2, Monitor, RefreshCw, Send, Server, Settings, Wifi, X } from "lucide-vue-next";
 import { useAdminData } from "./useAdminData";
 import type { AdminView } from "./useAdminData";
 
@@ -10,7 +10,6 @@ const data = reactive(useAdminData());
 const readmeFullscreen = ref(false);
 const activeTab = computed<AdminView>(() => (["runs", "devices", "tasks", "monitoring", "reports", "models", "channels"].includes(String(route.name)) ? route.name as AdminView : "runs"));
 const pageTitle = computed(() => ({ runs: "每日采集数据", devices: "采集设备", tasks: "任务中心", monitoring: "运行监控", reports: "日报中心", models: "模型配置", channels: "通知渠道" }[activeTab.value]));
-const pageSubtitle = computed(() => ({ runs: "浏览每日批次并核对项目 README 结果", devices: "掌握采集节点的连接与队列状态", tasks: "下发、跟踪和取消采集任务", monitoring: "查看心跳与插件运行事件", reports: "阅读、手动生成和追踪每日业务总结", models: "管理 OpenAI 兼容服务和自动日报默认模型", channels: "配置 Telegram Bot 和日报推送目标" }[activeTab.value]));
 const previewSrcdoc = computed(() => {
   const html = data.selectedItem?.readmeHtml;
   if (!html) return "";
@@ -45,7 +44,7 @@ onUnmounted(() => { document.removeEventListener("keydown", handleKeydown); if (
 <template>
   <RouterView v-if="route.name === 'public-report'" />
   <main v-else-if="!data.authReady" class="auth-gate auth-gate-loading" aria-live="polite"><RefreshCw :size="20" class="spinning" aria-hidden="true" /><span>正在连接管理服务</span></main>
-  <main v-else-if="!data.isAuthenticated" class="auth-gate"><section class="auth-card" aria-labelledby="admin-login-title"><div class="auth-brand"><span class="brand-mark">AH</span><div><strong>AutomationHub</strong><span>采集管理</span></div></div><div class="auth-heading"><span class="eyebrow">ADMIN ACCESS</span><h1 id="admin-login-title">管理后台</h1><p>请输入管理 Key 以继续访问。</p></div><form class="auth-form" @submit.prevent="loginCurrentView"><label><span>管理 Key</span><div class="auth-input"><KeyRound :size="17" aria-hidden="true" /><input v-model="data.adminApiKey" type="password" autocomplete="current-password" autofocus placeholder="输入管理 Key" /></div></label><div v-if="data.loginError" class="auth-error" role="alert"><AlertCircle :size="16" aria-hidden="true" /><span>{{ data.loginError }}</span></div><button class="primary-button auth-submit" type="submit" :disabled="data.loginLoading"><RefreshCw v-if="data.loginLoading" :size="16" class="spinning" aria-hidden="true" /><LockKeyhole v-else :size="16" aria-hidden="true" /><span>{{ data.loginLoading ? '验证中' : '进入管理后台' }}</span></button></form></section></main>
+  <main v-else-if="!data.isAuthenticated" class="auth-gate"><section class="auth-card" aria-labelledby="admin-login-title"><div class="auth-brand"><span class="brand-mark">AH</span><div><strong>AutomationHub</strong><span>采集管理</span></div></div><div class="auth-heading"><span class="eyebrow">ADMIN ACCESS</span><h1 id="admin-login-title">管理后台</h1><p>请输入管理 Key 以继续访问。</p></div><form class="auth-form" @submit.prevent="loginCurrentView"><label><span>管理 Key</span><div class="auth-input"><KeyRound :size="17" aria-hidden="true" /><el-input v-model="data.adminApiKey" type="password" autocomplete="current-password" autofocus placeholder="输入管理 Key" show-password /></div></label><div v-if="data.loginError" class="auth-error" role="alert"><AlertCircle :size="16" aria-hidden="true" /><span>{{ data.loginError }}</span></div><el-button class="auth-submit" type="primary" native-type="submit" :loading="data.loginLoading"><LockKeyhole v-if="!data.loginLoading" :size="16" aria-hidden="true" /><span>{{ data.loginLoading ? '验证中' : '进入管理后台' }}</span></el-button></form></section></main>
   <div v-else class="app-shell">
     <aside class="sidebar"><div class="brand"><span class="brand-mark">AH</span><div><strong>AutomationHub</strong><span>采集管理</span></div></div>
       <span class="nav-label">工作台</span>
@@ -64,15 +63,12 @@ onUnmounted(() => { document.removeEventListener("keydown", handleKeydown); if (
       <div class="sidebar-status" :data-state="data.connectionState"><Wifi :size="16" aria-hidden="true" /><div><span>API 状态</span><strong>{{ data.connectionLabel }}</strong></div></div>
     </aside>
 
-    <main class="main-content"><header class="command-bar"><div><p class="page-kicker">TRENDING README</p><h1>{{ pageTitle }}</h1><p class="page-subtitle">{{ pageSubtitle }}</p></div><div class="command-actions">
-      <button class="icon-button" type="button" :disabled="data.loading" title="刷新当前页面" aria-label="刷新当前页面" @click="refreshCurrentView"><RefreshCw :size="18" :class="{ spinning: data.loading }" aria-hidden="true" /></button>
+    <main class="main-content"><header class="command-bar"><h1>{{ pageTitle }}</h1><div class="command-actions">
+      <el-button class="icon-button" native-type="button" :loading="data.loading" :disabled="data.loading" title="刷新当前页面" aria-label="刷新当前页面" @click="refreshCurrentView"><RefreshCw :size="18" :class="{ spinning: data.loading }" aria-hidden="true" /></el-button>
       <button class="icon-button" type="button" title="连接设置" aria-label="连接设置" :aria-expanded="data.showConnectionSettings" @click="data.showConnectionSettings = !data.showConnectionSettings"><Settings :size="18" aria-hidden="true" /></button>
     </div></header>
-      <section v-if="data.showConnectionSettings" class="connection-band" aria-label="管理 API 连接设置"><div class="connection-heading"><Server :size="19" aria-hidden="true" /><div><strong>管理 API</strong><span>本地联调可留空管理密钥</span></div></div><label>API 地址<input v-model="data.apiOrigin" type="url" placeholder="http://localhost:3000" /></label><label>管理密钥<input v-model="data.adminApiKey" type="password" autocomplete="off" placeholder="受保护部署时填写" /></label><button class="primary-button" type="button" :disabled="data.loading" @click="connectCurrentView"><RefreshCw v-if="data.loading" :size="16" class="spinning" aria-hidden="true" /><span>{{ data.loading ? '连接中' : '连接并读取' }}</span></button></section>
+      <section v-if="data.showConnectionSettings" class="connection-band" aria-label="管理 API 连接设置"><div class="connection-heading"><Server :size="19" aria-hidden="true" /><div><strong>管理 API</strong><span>本地联调可留空管理密钥</span></div></div><label>API 地址<el-input v-model="data.apiOrigin" type="url" placeholder="http://localhost:3000" /></label><label>管理密钥<el-input v-model="data.adminApiKey" type="password" autocomplete="off" placeholder="受保护部署时填写" show-password /></label><el-button type="primary" :loading="data.loading" @click="connectCurrentView"><RefreshCw v-if="!data.loading" :size="16" aria-hidden="true" /><span>{{ data.loading ? '连接中' : '连接并读取' }}</span></el-button></section>
       <div v-if="data.errorMessage" class="alert" role="alert"><AlertCircle :size="18" aria-hidden="true" /><span>{{ data.errorMessage }}</span><button type="button" title="关闭错误提示" aria-label="关闭错误提示" @click="data.errorMessage = ''"><X :size="17" aria-hidden="true" /></button></div>
-      <section v-if="activeTab === 'runs'" class="metrics-grid" aria-label="采集数据概览"><div class="metric-card"><span>当日批次</span><strong>{{ data.metrics.runs }}</strong><Activity :size="19" aria-hidden="true" /></div><div class="metric-card"><span>本页项目</span><strong>{{ data.metrics.projects }}</strong><Layers3 :size="19" aria-hidden="true" /></div><div class="metric-card" data-tone="success"><span>本页成功</span><strong>{{ data.metrics.success }}</strong><Database :size="19" aria-hidden="true" /></div><div class="metric-card" data-tone="danger"><span>本页失败</span><strong>{{ data.metrics.failed }}</strong><AlertCircle :size="19" aria-hidden="true" /></div></section>
-      <section v-else-if="activeTab === 'devices'" class="metrics-grid compact-grid" aria-label="设备概览"><div class="metric-card"><span>设备总数</span><strong>{{ data.pagination.devices.total }}</strong><Monitor :size="19" aria-hidden="true" /></div><div class="metric-card" data-tone="success"><span>本页在线</span><strong>{{ data.metrics.onlineDevices }}</strong><Wifi :size="19" aria-hidden="true" /></div></section>
-      <section v-else-if="activeTab === 'monitoring'" class="metrics-grid compact-grid" aria-label="日志概览"><div class="metric-card"><span>日志总数</span><strong>{{ data.pagination.logs.total }}</strong><Activity :size="19" aria-hidden="true" /></div><div class="metric-card" data-tone="success"><span>在线设备</span><strong>{{ data.metrics.monitoringOnlineDevices }}</strong><Wifi :size="19" aria-hidden="true" /></div></section>
       <div class="view-host"><RouterView /></div>
     </main>
 

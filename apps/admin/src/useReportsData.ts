@@ -20,6 +20,7 @@ const reportNotice = ref("");
 const reportDeliveries = ref<ReportDelivery[]>([]);
 const reportPagination = ref<PageMeta>({ total: 0, page: 1, page_size: 20, total_pages: 1 });
 let reportRequestSequence = 0;
+let reportListRequestSequence = 0;
 
 export function useReportsData() {
   return {
@@ -57,6 +58,7 @@ export function useReportsData() {
 }
 
 async function refreshReports(options: { background?: boolean } = {}) {
+  const sequence = ++reportListRequestSequence;
   if (!options.background) reportLoading.value = true;
   reportError.value = "";
   try {
@@ -71,6 +73,7 @@ async function refreshReports(options: { background?: boolean } = {}) {
       apiFetch<ReportGeneration[]>(`/api/v1/admin/reports?${query.toString()}`),
       apiFetch<ModelProvider[]>("/api/v1/admin/model-providers")
     ]);
+    if (sequence !== reportListRequestSequence) return;
     reports.value = response.data;
     defaultProviderConfigured.value = providersResponse.data.some((provider) => provider.is_default && provider.status === "active");
     if (response.meta) reportPagination.value = response.meta;
@@ -79,9 +82,9 @@ async function refreshReports(options: { background?: boolean } = {}) {
       if (latest) await selectReport(latest, { background: true });
     }
   } catch (error) {
-    reportError.value = error instanceof Error ? error.message : "日报读取失败。";
+    if (sequence === reportListRequestSequence) reportError.value = error instanceof Error ? error.message : "日报读取失败。";
   } finally {
-    if (!options.background) reportLoading.value = false;
+    if (sequence === reportListRequestSequence) reportLoading.value = false;
   }
 }
 
@@ -159,7 +162,7 @@ async function retryDelivery(delivery: ReportDelivery) {
 }
 
 async function createReport(runId: string) {
-  if (!runId) return;
+  if (!runId) return false;
   startReportAction("create");
   try {
     const response = await apiFetch<ReportGeneration>("/api/v1/admin/reports", { method: "POST", body: JSON.stringify({ run_id: runId }) });
@@ -167,8 +170,10 @@ async function createReport(runId: string) {
     await refreshReports();
     const created = reports.value.find((entry) => entry.id === response.data.id) ?? response.data;
     await selectReport(created);
+    return true;
   } catch (error) {
     reportError.value = error instanceof Error ? error.message : "日报生成任务提交失败。";
+    return false;
   } finally {
     finishReportAction();
   }
@@ -181,8 +186,10 @@ async function retryReport(report: ReportGeneration) {
     reportNotice.value = "已创建新的日报生成记录，原结果仍然保留。";
     await refreshReports();
     await selectReport(reports.value.find((entry) => entry.id === response.data.id) ?? response.data);
+    return true;
   } catch (error) {
     reportError.value = error instanceof Error ? error.message : "日报重试提交失败。";
+    return false;
   } finally {
     finishReportAction();
   }

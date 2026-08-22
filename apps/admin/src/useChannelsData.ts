@@ -17,6 +17,8 @@ const testingTargetId = ref("");
 const chats = ref<TelegramChat[]>([]);
 const chatLoading = ref(false);
 const testingChatId = ref("");
+let targetRequestSequence = 0;
+let chatRequestSequence = 0;
 
 export function useChannelsData() {
   return {
@@ -74,8 +76,12 @@ async function refreshChannels() {
 }
 
 async function selectChannel(channel: NotificationChannel) {
+  const sequence = ++targetRequestSequence;
+  chatRequestSequence += 1;
   selectedChannel.value = channel;
   chats.value = [];
+  chatLoading.value = false;
+  testingChatId.value = "";
   channelForm.value = {
     name: channel.name,
     botToken: "",
@@ -85,22 +91,17 @@ async function selectChannel(channel: NotificationChannel) {
   };
   editingTargetId.value = "";
   newTarget();
-  targetLoading.value = true;
-  channelError.value = "";
-  try {
-    const response = await apiFetch<NotificationTarget[]>(`/api/v1/admin/notification-channels/${encodeURIComponent(channel.id)}/targets`);
-    targets.value = response.data;
-  } catch (error) {
-    channelError.value = error instanceof Error ? error.message : "Telegram 目标读取失败。";
-  } finally {
-    targetLoading.value = false;
-  }
+  await refreshTargets(channel, sequence);
 }
 
 function newChannel() {
+  targetRequestSequence += 1;
+  chatRequestSequence += 1;
   selectedChannel.value = null;
   targets.value = [];
   chats.value = [];
+  chatLoading.value = false;
+  testingChatId.value = "";
   channelForm.value = { name: "", botToken: "", proxyUrl: "", proxyEnabled: false, enabled: true };
   newTarget();
 }
@@ -203,7 +204,7 @@ function editTarget(target: NotificationTarget) {
 }
 
 async function saveTarget() {
-  if (!selectedChannel.value) return;
+  if (!selectedChannel.value) return false;
   targetActionLoading.value = true;
   channelError.value = "";
   try {
@@ -212,10 +213,13 @@ async function saveTarget() {
       method: editingTargetId.value ? "PUT" : "POST",
       body: JSON.stringify({ name: targetForm.value.name, chat_id: targetForm.value.chatId, enabled: targetForm.value.enabled })
     });
+    const channel = selectedChannel.value;
     newTarget();
-    await selectChannel(selectedChannel.value);
+    await refreshTargets(channel);
+    return true;
   } catch (error) {
     channelError.value = error instanceof Error ? error.message : "Telegram 目标保存失败。";
+    return false;
   } finally {
     targetActionLoading.value = false;
   }
@@ -228,11 +232,24 @@ async function deleteTarget(target: NotificationTarget) {
   try {
     await apiFetch(`/api/v1/admin/notification-channels/${encodeURIComponent(selectedChannel.value.id)}/targets/${encodeURIComponent(target.id)}`, { method: "DELETE" });
     if (editingTargetId.value === target.id) newTarget();
-    await selectChannel(selectedChannel.value);
+    await refreshTargets(selectedChannel.value);
   } catch (error) {
     channelError.value = error instanceof Error ? error.message : "Telegram 目标删除失败。";
   } finally {
     targetActionLoading.value = false;
+  }
+}
+
+async function refreshTargets(channel: NotificationChannel, sequence = ++targetRequestSequence) {
+  targetLoading.value = true;
+  channelError.value = "";
+  try {
+    const response = await apiFetch<NotificationTarget[]>(`/api/v1/admin/notification-channels/${encodeURIComponent(channel.id)}/targets`);
+    if (sequence === targetRequestSequence && selectedChannel.value?.id === channel.id) targets.value = response.data;
+  } catch (error) {
+    if (sequence === targetRequestSequence) channelError.value = error instanceof Error ? error.message : "Telegram 目标读取失败。";
+  } finally {
+    if (sequence === targetRequestSequence) targetLoading.value = false;
   }
 }
 
@@ -251,17 +268,19 @@ async function testTarget(target: NotificationTarget) {
 
 async function discoverChats() {
   if (!selectedChannel.value) return;
+  const channel = selectedChannel.value;
+  const sequence = ++chatRequestSequence;
   chatLoading.value = true;
   channelError.value = "";
   try {
     const response = await apiFetch<TelegramChat[]>(
-      `/api/v1/admin/notification-channels/${encodeURIComponent(selectedChannel.value.id)}/chats`
+      `/api/v1/admin/notification-channels/${encodeURIComponent(channel.id)}/chats`
     );
-    chats.value = response.data;
+    if (sequence === chatRequestSequence && selectedChannel.value?.id === channel.id) chats.value = response.data;
   } catch (error) {
-    channelError.value = error instanceof Error ? error.message : "Telegram 会话读取失败。";
+    if (sequence === chatRequestSequence) channelError.value = error instanceof Error ? error.message : "Telegram 会话读取失败。";
   } finally {
-    chatLoading.value = false;
+    if (sequence === chatRequestSequence) chatLoading.value = false;
   }
 }
 
@@ -276,16 +295,17 @@ function selectChat(chat: TelegramChat) {
 
 async function testChat(chat: TelegramChat) {
   if (!selectedChannel.value) return;
+  const channel = selectedChannel.value;
   testingChatId.value = chat.id;
   channelError.value = "";
   try {
     await apiFetch(
-      `/api/v1/admin/notification-channels/${encodeURIComponent(selectedChannel.value.id)}/chats/${encodeURIComponent(chat.id)}:test`,
+      `/api/v1/admin/notification-channels/${encodeURIComponent(channel.id)}/chats/${encodeURIComponent(chat.id)}:test`,
       { method: "POST" }
     );
   } catch (error) {
-    channelError.value = error instanceof Error ? error.message : "Telegram 测试消息发送失败。";
+    if (selectedChannel.value?.id === channel.id) channelError.value = error instanceof Error ? error.message : "Telegram 测试消息发送失败。";
   } finally {
-    testingChatId.value = "";
+    if (selectedChannel.value?.id === channel.id) testingChatId.value = "";
   }
 }
