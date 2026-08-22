@@ -3,10 +3,20 @@ import type { ApiResponse, ConnectionState, Device, DeviceAuthorization, Item, P
 
 export const apiOrigin = ref(sessionStorage.getItem("automationhub.apiOrigin") ?? (import.meta.env.DEV ? "http://localhost:3000" : window.location.origin));
 export const adminApiKey = ref(sessionStorage.getItem("automationhub.adminApiKey") ?? "");
+const authReady = ref(false);
+const authRequired = ref(true);
+const isAuthenticated = ref(false);
+const loginLoading = ref(false);
+const loginError = ref("");
 const showConnectionSettings = ref(true);
 const today = new Date().toISOString().slice(0, 10);
 const runsDate = ref(today);
-const tasksDate = ref(today);
+const tasksDate = ref("");
+const taskStatus = ref<"pending" | "running" | "paused" | "completed" | "failed" | "cancelled" | "">("");
+const taskDeviceFilter = ref("");
+const scheduleStatus = ref<"active" | "completed" | "cancelled" | "">("");
+const scheduleDeviceFilter = ref("");
+const scheduleRecurrence = ref<"once" | "daily" | "">("");
 const taskBusinessDate = ref(today);
 const runs = ref<Run[]>([]); const devices = ref<Device[]>([]); const monitoringDevices = ref<Device[]>([]); const taskDevices = ref<Device[]>([]); const authorizations = ref<DeviceAuthorization[]>([]); const tasks = ref<Task[]>([]); const schedules = ref<TaskSchedule[]>([]); const logs = ref<RuntimeLog[]>([]); const items = ref<Item[]>([]);
 const selectedRun = ref<Run | null>(null); const selectedItem = ref<Item | null>(null); const loading = ref(false); const loadingItems = ref(false); const revokingDeviceId = ref(""); const errorMessage = ref("");
@@ -17,14 +27,75 @@ const emptyMeta = (): PageMeta => ({ total: 0, page: 1, page_size: 20, total_pag
 const pagination = reactive({ runs: emptyMeta(), devices: emptyMeta(), authorizations: emptyMeta(), tasks: emptyMeta(), schedules: emptyMeta(), logs: emptyMeta(), items: emptyMeta() });
 const metrics = computed(() => ({ runs: pagination.runs.total, projects: runs.value.reduce((total, run) => total + run.itemCount, 0), success: runs.value.reduce((total, run) => total + run.successCount, 0), failed: runs.value.reduce((total, run) => total + run.failureCount, 0), onlineDevices: devices.value.filter(isDeviceOnline).length, monitoringOnlineDevices: monitoringDevices.value.filter(isDeviceOnline).length, pendingTasks: tasks.value.filter((task) => task.status === "pending" || task.status === "running").length }));
 const connectionLabel = computed(() => ({ disconnected: "未连接", connecting: "连接中", online: "服务在线", error: "连接异常" })[connectionState.value]);
-export type AdminView = "runs" | "devices" | "tasks" | "monitoring" | "reports" | "models";
+export type AdminView = "runs" | "devices" | "tasks" | "monitoring" | "reports" | "models" | "channels";
+interface AuthStatus { auth_enabled: boolean; key_configured: boolean; }
 type RefreshOptions = { background?: boolean };
 type SelectRunOptions = { resetPage?: boolean; preserveSelectedItem?: boolean; background?: boolean };
 let itemRequestSequence = 0;
 
-export function useAdminData() { return { apiOrigin, adminApiKey, showConnectionSettings, runsDate, tasksDate, taskBusinessDate, runs, devices, taskDevices, authorizations, tasks, schedules, logs, items, selectedRun, selectedItem, loading, loadingItems, revokingDeviceId, cancellingTaskId, errorMessage, connectionState, taskDeviceId, creatingTask, authorizationExpiresIn, createdAuthorizationCode, creatingAuthorization, deletingAuthorizationId, taskMode, taskStartAt, taskTimeZone, cancellingScheduleId, metrics, pagination, connectionLabel, connect, refreshView, changeDate, selectRun, clearRunSelection, createAuthorization, deleteAuthorization, copyAuthorizationCode, createTask, cancelTask, cancelSchedule, revokeDevice, changePage, formatTime, statusLabel, isDeviceOnline, deviceStatusLabel }; }
-async function connect(view: AdminView) { sessionStorage.setItem("automationhub.apiOrigin", apiOrigin.value.replace(/\/$/, "")); if (adminApiKey.value) sessionStorage.setItem("automationhub.adminApiKey", adminApiKey.value); else sessionStorage.removeItem("automationhub.adminApiKey"); connectionState.value = "connecting"; await refreshView(view); if (!errorMessage.value) showConnectionSettings.value = false; }
-async function changeDate(scope: "runs" | "tasks") { if (scope === "runs") { pagination.runs.page = 1; clearRunSelection(); await refreshView("runs"); } else { pagination.tasks.page = 1; await refreshView("tasks"); } }
+export function useAdminData() { return { apiOrigin, adminApiKey, authReady, authRequired, isAuthenticated, loginLoading, loginError, showConnectionSettings, runsDate, tasksDate, taskStatus, taskDeviceFilter, scheduleStatus, scheduleDeviceFilter, scheduleRecurrence, taskBusinessDate, runs, devices, taskDevices, authorizations, tasks, schedules, logs, items, selectedRun, selectedItem, loading, loadingItems, revokingDeviceId, cancellingTaskId, errorMessage, connectionState, taskDeviceId, creatingTask, authorizationExpiresIn, createdAuthorizationCode, creatingAuthorization, deletingAuthorizationId, taskMode, taskStartAt, taskTimeZone, cancellingScheduleId, metrics, pagination, connectionLabel, initializeAuth, login, connect, refreshView, changeDate, applyTaskFilters, resetTaskFilters, selectRun, clearRunSelection, createAuthorization, deleteAuthorization, copyAuthorizationCode, createTask, cancelTask, cancelSchedule, revokeDevice, changePage, formatTime, statusLabel, isDeviceOnline, deviceStatusLabel }; }
+async function initializeAuth() {
+  authReady.value = false;
+  loginError.value = "";
+  errorMessage.value = "";
+  try {
+    const response = await requestJson<AuthStatus>("/api/v1/admin/auth-status", {}, false);
+    authRequired.value = response.data.auth_enabled;
+    if (!authRequired.value) {
+      isAuthenticated.value = true;
+      connectionState.value = "disconnected";
+      return;
+    }
+    if (!adminApiKey.value) {
+      isAuthenticated.value = false;
+      connectionState.value = "disconnected";
+      return;
+    }
+    await requestJson("/api/v1/admin/session");
+    isAuthenticated.value = true;
+  } catch (error) {
+    isAuthenticated.value = false;
+    connectionState.value = "error";
+    if (adminApiKey.value) {
+      adminApiKey.value = "";
+      sessionStorage.removeItem("automationhub.adminApiKey");
+      loginError.value = "管理 Key 无效，请重新输入。";
+    } else {
+      loginError.value = error instanceof Error ? error.message : "无法连接管理 API。";
+    }
+  } finally {
+    authReady.value = true;
+  }
+}
+async function login(view: AdminView) {
+  sessionStorage.setItem("automationhub.apiOrigin", apiOrigin.value.replace(/\/$/, ""));
+  if (adminApiKey.value) sessionStorage.setItem("automationhub.adminApiKey", adminApiKey.value);
+  else sessionStorage.removeItem("automationhub.adminApiKey");
+  loginLoading.value = true;
+  loginError.value = "";
+  errorMessage.value = "";
+  connectionState.value = "connecting";
+  try {
+    if (authRequired.value) await requestJson("/api/v1/admin/session");
+    isAuthenticated.value = true;
+    await refreshView(view);
+    if (!errorMessage.value) showConnectionSettings.value = false;
+  } catch (error) {
+    isAuthenticated.value = false;
+    connectionState.value = "error";
+    loginError.value = error instanceof Error ? error.message : "管理 Key 验证失败。";
+  } finally {
+    loginLoading.value = false;
+  }
+}
+async function connect(view: AdminView) { return login(view); }
+async function changeDate(scope: "runs" | "tasks") { if (scope === "runs") { pagination.runs.page = 1; clearRunSelection(); await refreshView("runs"); } else { await applyTaskFilters("tasks"); } }
+async function applyTaskFilters(kind: "tasks" | "schedules") { pagination[kind].page = 1; await refreshView("tasks"); }
+async function resetTaskFilters(kind: "tasks" | "schedules") {
+  if (kind === "tasks") { tasksDate.value = ""; taskStatus.value = ""; taskDeviceFilter.value = ""; }
+  else { scheduleStatus.value = ""; scheduleDeviceFilter.value = ""; scheduleRecurrence.value = ""; }
+  await applyTaskFilters(kind);
+}
 async function refreshView(view: AdminView, options: RefreshOptions = {}) {
   if (options.background && loading.value) return;
   errorMessage.value = "";
@@ -63,10 +134,20 @@ async function refreshDevices() {
   Object.assign(pagination.authorizations, authorizationResponse.meta ?? localMeta(authorizationResponse.data, pagination.authorizations));
 }
 async function refreshTasks() {
+  const taskQuery = new URLSearchParams();
+  if (tasksDate.value) taskQuery.set("date", tasksDate.value);
+  if (taskStatus.value) taskQuery.set("status", taskStatus.value);
+  if (taskDeviceFilter.value) taskQuery.set("device_id", taskDeviceFilter.value);
+  const scheduleQuery = new URLSearchParams();
+  if (scheduleStatus.value) scheduleQuery.set("status", scheduleStatus.value);
+  if (scheduleDeviceFilter.value) scheduleQuery.set("device_id", scheduleDeviceFilter.value);
+  if (scheduleRecurrence.value) scheduleQuery.set("recurrence", scheduleRecurrence.value);
+  const taskPath = taskQuery.size ? `/api/v1/admin/tasks?${taskQuery.toString()}` : "/api/v1/admin/tasks";
+  const schedulePath = scheduleQuery.size ? `/api/v1/admin/schedules?${scheduleQuery.toString()}` : "/api/v1/admin/schedules";
   const [taskResponse, deviceResponse, scheduleResponse] = await Promise.all([
-    apiFetch<Task[]>(pagePath(`/api/v1/admin/tasks?date=${encodeURIComponent(tasksDate.value)}`, pagination.tasks)),
+    apiFetch<Task[]>(pagePath(taskPath, pagination.tasks)),
     apiFetch<Device[]>("/api/v1/admin/devices?page=1&page_size=100"),
-    apiFetch<TaskSchedule[]>(pagePath("/api/v1/admin/schedules", pagination.schedules)),
+    apiFetch<TaskSchedule[]>(pagePath(schedulePath, pagination.schedules)),
   ]);
   tasks.value = taskResponse.data;
   taskDevices.value = deviceResponse.data;
@@ -113,12 +194,18 @@ function clearRunSelection() { itemRequestSequence += 1; selectedRun.value = nul
 async function createAuthorization() { creatingAuthorization.value = true; createdAuthorizationCode.value = ""; errorMessage.value = ""; try { const response = await apiFetch<{ authorization: DeviceAuthorization; code: string }>("/api/v1/admin/authorizations", { method: "POST", body: JSON.stringify({ expires_in: authorizationExpiresIn.value }) }); createdAuthorizationCode.value = response.data.code; pagination.authorizations.page = 1; await refreshView("devices"); } catch (error) { errorMessage.value = error instanceof Error ? error.message : "授权创建失败。"; } finally { creatingAuthorization.value = false; } }
 async function deleteAuthorization(authorization: DeviceAuthorization) { if (!window.confirm(authorization.device_id ? "删除该授权会同时撤销已连接的插件，历史数据仍会保留。确认继续吗？" : "确认删除该未使用授权吗？")) return; deletingAuthorizationId.value = authorization.id; errorMessage.value = ""; try { await apiFetch(`/api/v1/admin/authorizations/${encodeURIComponent(authorization.id)}`, { method: "DELETE" }); if (createdAuthorizationCode.value.endsWith(authorization.code_hint)) createdAuthorizationCode.value = ""; await refreshView("devices"); } catch (error) { errorMessage.value = error instanceof Error ? error.message : "授权删除失败。"; } finally { deletingAuthorizationId.value = ""; } }
 async function copyAuthorizationCode() { if (!createdAuthorizationCode.value) return; await navigator.clipboard.writeText(createdAuthorizationCode.value); }
-async function createTask() { if (!taskDeviceId.value) { errorMessage.value = "请先选择一个有效设备。"; return; } creatingTask.value = true; errorMessage.value = ""; try { if (taskMode.value === "immediate") { await apiFetch<Task>("/api/v1/admin/tasks", { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ device_id: taskDeviceId.value, type: "capture_trending", business_date: taskBusinessDate.value }) }); tasksDate.value = taskBusinessDate.value; pagination.tasks.page = 1; } else { const startAt = new Date(taskStartAt.value); if (!Number.isFinite(startAt.getTime())) throw new Error("请选择有效的执行时间。"); await apiFetch<TaskSchedule>("/api/v1/admin/schedules", { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ device_id: taskDeviceId.value, type: "capture_trending", recurrence: taskMode.value, start_at: startAt.toISOString(), time_zone: taskTimeZone.value }) }); pagination.schedules.page = 1; taskStartAt.value = defaultStartAt(); } await refreshView("tasks"); } catch (error) { errorMessage.value = error instanceof Error ? error.message : "任务创建失败。"; } finally { creatingTask.value = false; } }
+async function createTask() { if (!taskDeviceId.value) { errorMessage.value = "请先选择一个有效设备。"; return; } creatingTask.value = true; errorMessage.value = ""; try { if (taskMode.value === "immediate") { await apiFetch<Task>("/api/v1/admin/tasks", { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ device_id: taskDeviceId.value, type: "capture_trending", business_date: taskBusinessDate.value }) }); pagination.tasks.page = 1; } else { const startAt = new Date(taskStartAt.value); if (!Number.isFinite(startAt.getTime())) throw new Error("请选择有效的执行时间。"); await apiFetch<TaskSchedule>("/api/v1/admin/schedules", { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ device_id: taskDeviceId.value, type: "capture_trending", recurrence: taskMode.value, start_at: startAt.toISOString(), time_zone: taskTimeZone.value }) }); pagination.schedules.page = 1; taskStartAt.value = defaultStartAt(); } await refreshView("tasks"); } catch (error) { errorMessage.value = error instanceof Error ? error.message : "任务创建失败。"; } finally { creatingTask.value = false; } }
 async function cancelTask(task: Task) { if (!["pending", "running", "paused"].includes(task.status)) return; if (!window.confirm(`确认取消任务“${task.id}”吗？插件将在下一次心跳时停止执行。`)) return; cancellingTaskId.value = task.id; errorMessage.value = ""; try { await apiFetch<Task>(`/api/v1/admin/tasks/${encodeURIComponent(task.id)}:cancel`, { method: "POST" }); await refreshView("tasks"); } catch (error) { errorMessage.value = error instanceof Error ? error.message : "任务取消失败。"; } finally { cancellingTaskId.value = ""; } }
 async function cancelSchedule(schedule: TaskSchedule) { if (schedule.status !== "active" || !window.confirm("确认停用该计划吗？已经生成的任务不会被删除。")) return; cancellingScheduleId.value = schedule.id; errorMessage.value = ""; try { await apiFetch<TaskSchedule>(`/api/v1/admin/schedules/${encodeURIComponent(schedule.id)}`, { method: "DELETE" }); await refreshView("tasks"); } catch (error) { errorMessage.value = error instanceof Error ? error.message : "计划停用失败。"; } finally { cancellingScheduleId.value = ""; } }
 async function revokeDevice(device: Device) { if (!window.confirm(`确认撤销设备“${device.name}”吗？撤销后该设备将无法继续上传。`)) return; revokingDeviceId.value = device.id; errorMessage.value = ""; try { await apiFetch(`/api/v1/admin/devices/${encodeURIComponent(device.id)}:revoke`, { method: "POST" }); await refreshView("devices"); } catch (error) { errorMessage.value = error instanceof Error ? error.message : "设备撤销失败。"; } finally { revokingDeviceId.value = ""; } }
 async function changePage(kind: keyof typeof pagination, page: number) { const state = pagination[kind]; const target = Math.min(Math.max(page, 1), state.total_pages); if (target === state.page && state.total === 0) return; state.page = target; if (kind === "items" && selectedRun.value) await selectRun(selectedRun.value, { resetPage: false }); else if (kind === "runs") await refreshView("runs"); else if (kind === "devices" || kind === "authorizations") await refreshView("devices"); else if (kind === "tasks" || kind === "schedules") await refreshView("tasks"); else await refreshView("monitoring"); }
-export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}) { const response = await fetch(`${apiOrigin.value.replace(/\/$/, "")}${path}`, { ...init, headers: { "content-type": "application/json", ...(adminApiKey.value ? { "x-admin-key": adminApiKey.value } : {}), ...(init.headers ?? {}) } }); const body = await response.json() as ApiResponse<T>; if (!response.ok) throw new Error(body.message || body.code || "管理 API 请求失败。"); return body; }
+export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}) { return requestJson<T>(path, init); }
+async function requestJson<T = unknown>(path: string, init: RequestInit = {}, includeAdminKey = true) {
+  const response = await fetch(`${apiOrigin.value.replace(/\/$/, "")}${path}`, { ...init, headers: { "content-type": "application/json", ...(includeAdminKey && adminApiKey.value ? { "x-admin-key": adminApiKey.value } : {}), ...(init.headers ?? {}) } });
+  const body = await response.json() as ApiResponse<T>;
+  if (!response.ok) throw new Error(body.message || body.code || "管理 API 请求失败。");
+  return body;
+}
 export function pagePath(path: string, state: PageMeta) { const joiner = path.includes("?") ? "&" : "?"; return `${path}${joiner}page=${state.page}&page_size=${state.page_size}`; }
 function localMeta<T>(items: T[], state: PageMeta): PageMeta { return { total: items.length, page: state.page, page_size: state.page_size, total_pages: Math.max(1, Math.ceil(items.length / state.page_size)) }; }
 function formatTime(value?: string) { return value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "未上报"; }

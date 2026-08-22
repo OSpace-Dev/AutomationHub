@@ -16,13 +16,13 @@ FROM node:22-bookworm-slim AS runtime
 
 ENV NODE_ENV=production \
     PORT=3000 \
-    DATA_FILE=/app/data/store.json \
     ADMIN_DIST_PATH=/app/admin
 
 WORKDIR /app
-RUN mkdir -p /app/data && chown node:node /app/data
 COPY --from=build /app/apps/api/dist /app/api
 COPY --from=build /app/apps/admin/dist /app/admin
+COPY --from=build /app/node_modules /app/node_modules
+COPY --from=build /app/apps/api/node_modules /app/api/node_modules
 
 USER node
 EXPOSE 3000

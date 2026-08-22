@@ -188,9 +188,13 @@ export class CollectionService {
     });
   }
 
-  async listSchedules(page = 1, pageSize = DEFAULT_PAGE_SIZE): Promise<PageResult<TaskSchedule>> {
+  async listSchedules(input: { deviceId?: string; status?: TaskSchedule["status"]; recurrence?: TaskSchedule["recurrence"]; page?: number; pageSize?: number }): Promise<PageResult<TaskSchedule>> {
     const data = await this.store.read();
-    return paginate(data.schedules.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), page, pageSize);
+    return paginate(data.schedules
+      .filter((schedule) => (!input.deviceId || schedule.deviceId === input.deviceId)
+        && (!input.status || schedule.status === input.status)
+        && (!input.recurrence || schedule.recurrence === input.recurrence))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)), input.page, input.pageSize);
   }
 
   async cancelSchedule(scheduleId: string): Promise<TaskSchedule> {

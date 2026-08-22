@@ -10,6 +10,8 @@ export type ModelProviderStatus = "active" | "disabled";
 export type ReportGenerationStatus = "pending" | "running" | "completed" | "failed";
 export type ReportGenerationTrigger = "automatic" | "manual" | "retry";
 export type ReportSourceType = "github_trending";
+export type NotificationChannelType = "telegram";
+export type ReportDeliveryStatus = "pending" | "sending" | "sent" | "failed";
 
 export interface RegistrationCode {
   id: string;
@@ -228,6 +230,50 @@ export interface ReportGeneration {
   completedAt?: string;
 }
 
+export interface NotificationChannel {
+  id: string;
+  type: NotificationChannelType;
+  name: string;
+  encryptedBotToken: string;
+  botTokenHint: string;
+  proxyUrl?: string;
+  encryptedProxyUrl?: string;
+  proxyUrlHint?: string;
+  proxyEnabled: boolean;
+  botUsername?: string;
+  botDisplayName?: string;
+  enabled: boolean;
+  lastVerifiedAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationTarget {
+  id: string;
+  channelId: string;
+  name: string;
+  chatId: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReportDelivery {
+  id: string;
+  reportGenerationId: string;
+  channelId: string;
+  targetId: string;
+  status: ReportDeliveryStatus;
+  attemptCount: number;
+  messageCount?: number;
+  lastError?: string;
+  createdAt: string;
+  startedAt?: string;
+  sentAt?: string;
+  completedAt?: string;
+}
+
 export interface StoreData {
   registrationCodes: RegistrationCode[];
   devices: Device[];
@@ -240,6 +286,9 @@ export interface StoreData {
   modelProviders: ModelProvider[];
   reportDefinitions: ReportDefinition[];
   reportGenerations: ReportGeneration[];
+  notificationChannels: NotificationChannel[];
+  notificationTargets: NotificationTarget[];
+  reportDeliveries: ReportDelivery[];
 }
 
 export const EMPTY_STORE: StoreData = {
@@ -253,5 +302,8 @@ export const EMPTY_STORE: StoreData = {
   logs: [],
   modelProviders: [],
   reportDefinitions: [],
-  reportGenerations: []
+  reportGenerations: [],
+  notificationChannels: [],
+  notificationTargets: [],
+  reportDeliveries: []
 };

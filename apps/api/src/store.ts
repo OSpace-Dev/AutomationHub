@@ -9,6 +9,7 @@ export interface Store {
   initialize(bootstrapCode?: string): Promise<void>;
   read(): Promise<StoreData>;
   update<T>(mutation: (data: StoreData) => T): Promise<T>;
+  close(): Promise<void>;
 }
 
 export class FileStore implements Store {
@@ -63,6 +64,8 @@ export class FileStore implements Store {
     return result;
   }
 
+  async close(): Promise<void> {}
+
   private async readCurrent(): Promise<StoreData> {
     const content = await readFile(this.filePath, "utf8");
     const parsed = JSON.parse(content) as Partial<StoreData>;
@@ -79,7 +82,10 @@ export class FileStore implements Store {
       registrationCodes: parsed.registrationCodes ?? [],
       modelProviders: parsed.modelProviders ?? [],
       reportDefinitions: parsed.reportDefinitions ?? [],
-      reportGenerations: parsed.reportGenerations ?? []
+      reportGenerations: parsed.reportGenerations ?? [],
+      notificationChannels: parsed.notificationChannels ?? [],
+      notificationTargets: parsed.notificationTargets ?? [],
+      reportDeliveries: parsed.reportDeliveries ?? []
     };
   }
 

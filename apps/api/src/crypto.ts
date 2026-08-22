@@ -23,7 +23,7 @@ export function hashContent(value: string): string {
 
 const MODEL_KEY_VERSION = "v1";
 
-export class ApiKeyVault {
+export class SecretVault {
   private readonly key: Buffer | undefined;
 
   constructor(keyMaterial?: string) {
@@ -35,7 +35,7 @@ export class ApiKeyVault {
   }
 
   encrypt(value: string): string {
-    if (!this.key) throw new ApiError(503, "model_encryption_not_configured", "Model encryption key is not configured");
+    if (!this.key) throw new ApiError(503, "secret_encryption_not_configured", "Secret encryption key is not configured");
     const iv = randomBytes(12);
     const cipher = createCipheriv("aes-256-gcm", this.key, iv);
     const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
@@ -44,17 +44,44 @@ export class ApiKeyVault {
   }
 
   decrypt(value: string): string {
-    if (!this.key) throw new ApiError(503, "model_encryption_not_configured", "Model encryption key is not configured");
+    if (!this.key) throw new ApiError(503, "secret_encryption_not_configured", "Secret encryption key is not configured");
     const [version, ivEncoded, tagEncoded, ciphertextEncoded] = value.split(":");
     if (version !== MODEL_KEY_VERSION || !ivEncoded || !tagEncoded || !ciphertextEncoded) {
-      throw new ApiError(500, "model_api_key_unavailable", "Stored model API key is not readable");
+      throw new ApiError(500, "secret_unavailable", "Stored secret is not readable");
     }
     try {
       const decipher = createDecipheriv("aes-256-gcm", this.key, Buffer.from(ivEncoded, "base64url"));
       decipher.setAuthTag(Buffer.from(tagEncoded, "base64url"));
       return Buffer.concat([decipher.update(Buffer.from(ciphertextEncoded, "base64url")), decipher.final()]).toString("utf8");
     } catch {
-      throw new ApiError(500, "model_api_key_unavailable", "Stored model API key is not readable");
+      throw new ApiError(500, "secret_unavailable", "Stored secret is not readable");
+    }
+  }
+}
+
+export class ApiKeyVault extends SecretVault {
+  encrypt(value: string): string {
+    try {
+      return super.encrypt(value);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "secret_encryption_not_configured") {
+        throw new ApiError(503, "model_encryption_not_configured", "Model encryption key is not configured");
+      }
+      throw error;
+    }
+  }
+
+  decrypt(value: string): string {
+    try {
+      return super.decrypt(value);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "secret_encryption_not_configured") {
+        throw new ApiError(503, "model_encryption_not_configured", "Model encryption key is not configured");
+      }
+      if (error instanceof ApiError && error.code === "secret_unavailable") {
+        throw new ApiError(500, "model_api_key_unavailable", "Stored model API key is not readable");
+      }
+      throw error;
     }
   }
 }

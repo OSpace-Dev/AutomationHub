@@ -122,6 +122,7 @@ export interface ReportGenerationServiceOptions {
   modelRequestMinIntervalMs?: number;
   now?: () => number;
   sleep?: (milliseconds: number) => Promise<void>;
+  onCompletedReport?: (generationId: string) => void | Promise<void>;
 }
 
 class ModelRequestPacer {
@@ -155,6 +156,7 @@ export class ReportGenerationService {
   private wakeTimer: NodeJS.Timeout | undefined;
   private readonly source = new GitHubTrendingReportSource();
   private readonly modelRequestPacer: ModelRequestPacer;
+  private readonly onCompletedReport: ReportGenerationServiceOptions["onCompletedReport"];
 
   constructor(
     private readonly store: Store,
@@ -166,6 +168,7 @@ export class ReportGenerationService {
       options.now ?? Date.now,
       options.sleep ?? sleep
     );
+    this.onCompletedReport = options.onCompletedReport;
   }
 
   async start(): Promise<void> {
@@ -228,10 +231,12 @@ export class ReportGenerationService {
     return this.createFromRun(previous.runId, "retry", previous.id);
   }
 
-  async list(input: { date?: string; status?: ReportGeneration["status"]; page?: number; pageSize?: number }): Promise<ReportPageResult<ReportGeneration>> {
+  async list(input: { date?: string; status?: ReportGeneration["status"]; trigger?: ReportGeneration["trigger"]; page?: number; pageSize?: number }): Promise<ReportPageResult<ReportGeneration>> {
     const data = await this.store.read();
     return paginate(data.reportGenerations
-      .filter((entry) => (!input.date || entry.businessDate === input.date) && (!input.status || entry.status === input.status))
+      .filter((entry) => (!input.date || entry.businessDate === input.date)
+        && (!input.status || entry.status === input.status)
+        && (!input.trigger || entry.trigger === input.trigger))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)), input.page, input.pageSize);
   }
 
@@ -348,6 +353,7 @@ export class ReportGenerationService {
         target.errorCode = undefined;
         target.errorMessage = undefined;
       });
+      void this.onCompletedReport?.(generation.id);
     } catch (error) {
       const safe = error instanceof ApiError ? error : new ApiError(502, "report_generation_failed", "Report generation failed", true);
       await this.store.update((data) => {
@@ -404,6 +410,8 @@ export class ReportGenerationService {
   }
 
   private async recoverInterrupted(): Promise<void> {
+    const snapshot = await this.store.read();
+    if (!snapshot.reportGenerations.some((generation) => generation.status === "running")) return;
     await this.store.update((data) => {
       for (const generation of data.reportGenerations) {
         if (generation.status === "running") {

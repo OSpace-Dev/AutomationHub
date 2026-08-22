@@ -1,13 +1,15 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
-import { ApiKeyVault } from "./crypto.js";
+import { ApiKeyVault, SecretVault } from "./crypto.js";
 import { ApiError, invalidPayload } from "./errors.js";
-import type { CollectionTask, ProjectSnapshot, RegistrationCode, ReportGeneration, ReportGenerationStatus, ReportInsights, RuntimeLogLevel, ScheduleRecurrence, TaskSchedule, TaskStatus, TaskType } from "./models.js";
+import type { CollectionTask, NotificationTarget, ProjectSnapshot, RegistrationCode, ReportGeneration, ReportGenerationStatus, ReportGenerationTrigger, ReportInsights, RuntimeLogLevel, ScheduleRecurrence, ScheduleStatus, TaskSchedule, TaskStatus, TaskType } from "./models.js";
 import { ModelProviderService, OpenAiCompatibleClient } from "./model-service.js";
+import { ReportDeliveryService, type NotificationChannelInput, type NotificationTargetInput } from "./notification-service.js";
 import { ReportGenerationService } from "./report-service.js";
 import { CollectionService, type AuthorizationExpiry } from "./service.js";
 import type { Store } from "./store.js";
+import { TelegramClient, type TelegramProxyRequest } from "./telegram-service.js";
 import { optionalNonNegativeInteger, optionalString, requireInteger, requireObject, requireString } from "./validation.js";
 
 interface ServerOptions {
@@ -19,28 +21,46 @@ interface ServerOptions {
   modelEncryptionKey?: string;
   publicBaseUrl?: string;
   modelFetch?: typeof fetch;
+  telegramFetch?: typeof fetch;
+  telegramProxyRequest?: TelegramProxyRequest;
   modelRequestMinIntervalMs?: number;
 }
 
 export function createApiServer(options: ServerOptions): Server {
   const service = new CollectionService(options.store);
   const providers = new ModelProviderService(options.store, new ApiKeyVault(options.modelEncryptionKey), new OpenAiCompatibleClient(options.modelFetch ?? fetch));
+  const deliveries = new ReportDeliveryService(
+    options.store,
+    new SecretVault(options.modelEncryptionKey),
+    new TelegramClient({
+      requestFetch: options.telegramFetch ?? fetch,
+      requestProxy: options.telegramProxyRequest
+    }),
+    options.publicBaseUrl
+  );
   const reports = new ReportGenerationService(options.store, providers, {
-    modelRequestMinIntervalMs: options.modelRequestMinIntervalMs
+    modelRequestMinIntervalMs: options.modelRequestMinIntervalMs,
+    onCompletedReport: async (generationId) => {
+      await deliveries.enqueueForCompletedReport(generationId);
+    }
   });
   void reports.start();
+  void deliveries.start();
   const server = createServer(async (request, response) => {
     try {
-      await routeRequest(request, response, service, providers, reports, options);
+      await routeRequest(request, response, service, providers, reports, deliveries, options);
     } catch (error) {
       handleError(response, error, options.corsOrigin);
     }
   });
-  server.on("close", () => reports.stop());
+  server.on("close", () => {
+    reports.stop();
+    deliveries.stop();
+  });
   return server;
 }
 
-async function routeRequest(request: IncomingMessage, response: ServerResponse, service: CollectionService, providers: ModelProviderService, reports: ReportGenerationService, options: ServerOptions): Promise<void> {
+async function routeRequest(request: IncomingMessage, response: ServerResponse, service: CollectionService, providers: ModelProviderService, reports: ReportGenerationService, deliveries: ReportDeliveryService, options: ServerOptions): Promise<void> {
   if (request.method === "OPTIONS") return writeJson(response, 204, {}, options.corsOrigin);
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
 
@@ -155,7 +175,17 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse, 
     return writeJson(response, 200, { status: "success", data: { ...result, rejected: 0 } }, options.corsOrigin);
   }
 
+  if (request.method === "GET" && url.pathname === "/api/v1/admin/auth-status") {
+    return writeJson(response, 200, {
+      status: "success",
+      data: { auth_enabled: isAuthEnabled(options), key_configured: Boolean(options.adminApiKey) }
+    }, options.corsOrigin);
+  }
+
   if (url.pathname.startsWith("/api/v1/admin/")) requireAdmin(request, options);
+  if (request.method === "GET" && url.pathname === "/api/v1/admin/session") {
+    return writeJson(response, 200, { status: "success", data: { authenticated: true } }, options.corsOrigin);
+  }
   if (request.method === "GET" && url.pathname === "/api/v1/admin/runs") {
     const runs = await service.listRuns(url.searchParams.get("date") ?? undefined, readPage(url), readPageSize(url));
     return writeJson(response, 200, { status: "success", data: runs.items, meta: pageMeta(runs) }, options.corsOrigin);
@@ -228,10 +258,104 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse, 
     return writeJson(response, 200, { status: "success", data: models }, options.corsOrigin);
   }
 
+  if (request.method === "GET" && url.pathname === "/api/v1/admin/notification-channels") {
+    const channels = await deliveries.listChannels();
+    return writeJson(response, 200, { status: "success", data: channels.map(serializeNotificationChannel) }, options.corsOrigin);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/v1/admin/notification-channels") {
+    const body = requireObject(await readJson(request));
+    const type = optionalString(body, "type") || "telegram";
+    if (type !== "telegram") throw invalidPayload("type must be telegram");
+    const channel = await deliveries.createChannel({
+      name: requireString(body, "name"),
+      botToken: requireString(body, "bot_token"),
+      proxyUrl: body.proxy_url === undefined ? undefined : optionalString(body, "proxy_url"),
+      proxyEnabled: optionalBoolean(body, "proxy_enabled", false),
+      enabled: optionalBoolean(body, "enabled", true)
+    });
+    return writeJson(response, 201, { status: "success", data: serializeNotificationChannel(channel) }, options.corsOrigin);
+  }
+
+  const notificationChannelVerifyMatch = url.pathname.match(/^\/api\/v1\/admin\/notification-channels\/([^/:]+):verify$/);
+  if (request.method === "POST" && notificationChannelVerifyMatch) {
+    const channel = await deliveries.verifyChannel(decodeURIComponent(notificationChannelVerifyMatch[1]));
+    return writeJson(response, 200, { status: "success", data: serializeNotificationChannel(channel) }, options.corsOrigin);
+  }
+
+  const notificationChannelChatsMatch = url.pathname.match(/^\/api\/v1\/admin\/notification-channels\/([^/]+)\/chats$/);
+  if (request.method === "GET" && notificationChannelChatsMatch) {
+    const chats = await deliveries.discoverChats(decodeURIComponent(notificationChannelChatsMatch[1]));
+    return writeJson(response, 200, { status: "success", data: chats.map(serializeTelegramChat) }, options.corsOrigin);
+  }
+
+  const notificationChatTestMatch = url.pathname.match(/^\/api\/v1\/admin\/notification-channels\/([^/]+)\/chats\/([^/:]+):test$/);
+  if (request.method === "POST" && notificationChatTestMatch) {
+    await deliveries.sendTestChat(
+      decodeURIComponent(notificationChatTestMatch[1]),
+      decodeURIComponent(notificationChatTestMatch[2])
+    );
+    return writeJson(response, 200, { status: "success", data: { sent: true } }, options.corsOrigin);
+  }
+
+  const notificationChannelTargetsMatch = url.pathname.match(/^\/api\/v1\/admin\/notification-channels\/([^/]+)\/targets$/);
+  if (request.method === "GET" && notificationChannelTargetsMatch) {
+    const targets = await deliveries.listTargets(decodeURIComponent(notificationChannelTargetsMatch[1]));
+    return writeJson(response, 200, { status: "success", data: targets.map(serializeNotificationTarget) }, options.corsOrigin);
+  }
+  if (request.method === "POST" && notificationChannelTargetsMatch) {
+    const body = requireObject(await readJson(request));
+    const target = await deliveries.createTarget(decodeURIComponent(notificationChannelTargetsMatch[1]), {
+      name: requireString(body, "name"),
+      chatId: requireString(body, "chat_id"),
+      enabled: optionalBoolean(body, "enabled", true)
+    });
+    return writeJson(response, 201, { status: "success", data: serializeNotificationTarget(target) }, options.corsOrigin);
+  }
+
+  const notificationTargetTestMatch = url.pathname.match(/^\/api\/v1\/admin\/notification-channels\/([^/]+)\/targets\/([^/:]+):test$/);
+  if (request.method === "POST" && notificationTargetTestMatch) {
+    await deliveries.sendTest(decodeURIComponent(notificationTargetTestMatch[1]), decodeURIComponent(notificationTargetTestMatch[2]));
+    return writeJson(response, 200, { status: "success", data: { sent: true } }, options.corsOrigin);
+  }
+
+  const notificationTargetMatch = url.pathname.match(/^\/api\/v1\/admin\/notification-channels\/([^/]+)\/targets\/([^/]+)$/);
+  if (request.method === "PUT" && notificationTargetMatch) {
+    const body = requireObject(await readJson(request));
+    const target = await deliveries.updateTarget(decodeURIComponent(notificationTargetMatch[1]), decodeURIComponent(notificationTargetMatch[2]), {
+      name: body.name === undefined ? undefined : requireString(body, "name"),
+      chatId: body.chat_id === undefined ? undefined : requireString(body, "chat_id"),
+      enabled: body.enabled === undefined ? undefined : optionalBoolean(body, "enabled")
+    });
+    return writeJson(response, 200, { status: "success", data: serializeNotificationTarget(target) }, options.corsOrigin);
+  }
+  if (request.method === "DELETE" && notificationTargetMatch) {
+    const target = await deliveries.removeTarget(decodeURIComponent(notificationTargetMatch[1]), decodeURIComponent(notificationTargetMatch[2]));
+    return writeJson(response, 200, { status: "success", data: serializeNotificationTarget(target) }, options.corsOrigin);
+  }
+
+  const notificationChannelMatch = url.pathname.match(/^\/api\/v1\/admin\/notification-channels\/([^/]+)$/);
+  if (request.method === "PUT" && notificationChannelMatch) {
+    const body = requireObject(await readJson(request));
+    const channel = await deliveries.updateChannel(decodeURIComponent(notificationChannelMatch[1]), {
+      name: body.name === undefined ? undefined : requireString(body, "name"),
+      botToken: body.bot_token === undefined ? undefined : optionalString(body, "bot_token") || undefined,
+      proxyUrl: body.proxy_url === undefined ? undefined : optionalString(body, "proxy_url"),
+      proxyEnabled: body.proxy_enabled === undefined ? undefined : optionalBoolean(body, "proxy_enabled"),
+      enabled: body.enabled === undefined ? undefined : optionalBoolean(body, "enabled")
+    });
+    return writeJson(response, 200, { status: "success", data: serializeNotificationChannel(channel) }, options.corsOrigin);
+  }
+  if (request.method === "DELETE" && notificationChannelMatch) {
+    const channel = await deliveries.removeChannel(decodeURIComponent(notificationChannelMatch[1]));
+    return writeJson(response, 200, { status: "success", data: serializeNotificationChannel(channel) }, options.corsOrigin);
+  }
+
   if (request.method === "GET" && url.pathname === "/api/v1/admin/reports") {
     const result = await reports.list({
       date: url.searchParams.get("date") ?? undefined,
       status: url.searchParams.get("status") ? parseReportStatus(url.searchParams.get("status") as string) : undefined,
+      trigger: url.searchParams.get("trigger") ? parseReportTrigger(url.searchParams.get("trigger") as string) : undefined,
       page: readPage(url),
       pageSize: readPageSize(url)
     });
@@ -242,6 +366,22 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse, 
     const body = requireObject(await readJson(request));
     const generation = await reports.createManual(requireString(body, "run_id"));
     return writeJson(response, 202, { status: "success", data: serializeReport(generation, options.publicBaseUrl) }, options.corsOrigin);
+  }
+
+  const reportDeliveriesMatch = url.pathname.match(/^\/api\/v1\/admin\/reports\/([^/]+)\/deliveries$/);
+  if (request.method === "GET" && reportDeliveriesMatch) {
+    const reportDeliveries = await deliveries.listDeliveries(decodeURIComponent(reportDeliveriesMatch[1]));
+    return writeJson(response, 200, { status: "success", data: reportDeliveries.map(serializeReportDelivery) }, options.corsOrigin);
+  }
+  if (request.method === "POST" && reportDeliveriesMatch) {
+    const reportDeliveries = await deliveries.enqueueManual(decodeURIComponent(reportDeliveriesMatch[1]));
+    return writeJson(response, 202, { status: "success", data: reportDeliveries.map(serializeReportDelivery) }, options.corsOrigin);
+  }
+
+  const reportDeliveryRetryMatch = url.pathname.match(/^\/api\/v1\/admin\/report-deliveries\/([^/:]+):retry$/);
+  if (request.method === "POST" && reportDeliveryRetryMatch) {
+    const delivery = await deliveries.retryDelivery(decodeURIComponent(reportDeliveryRetryMatch[1]));
+    return writeJson(response, 202, { status: "success", data: serializeReportDelivery(delivery) }, options.corsOrigin);
   }
 
   const reportRetryMatch = url.pathname.match(/^\/api\/v1\/admin\/reports\/([^/:]+):retry$/);
@@ -298,7 +438,13 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse, 
   }
 
   if (request.method === "GET" && url.pathname === "/api/v1/admin/schedules") {
-    const schedules = await service.listSchedules(readPage(url), readPageSize(url));
+    const schedules = await service.listSchedules({
+      deviceId: url.searchParams.get("device_id") ?? undefined,
+      status: url.searchParams.get("status") ? parseScheduleStatus(url.searchParams.get("status") as string) : undefined,
+      recurrence: url.searchParams.get("recurrence") ? parseScheduleRecurrence(url.searchParams.get("recurrence") as string) : undefined,
+      page: readPage(url),
+      pageSize: readPageSize(url)
+    });
     return writeJson(response, 200, { status: "success", data: schedules.items.map(serializeSchedule), meta: pageMeta(schedules) }, options.corsOrigin);
   }
 
@@ -522,6 +668,70 @@ function serializeModelProvider(provider: { id: string; name: string; baseUrl: s
   };
 }
 
+function serializeNotificationChannel(channel: { id: string; type: string; name: string; botTokenConfigured: boolean; botTokenHint: string; proxyConfigured: boolean; proxyUrlHint?: string; proxyEnabled: boolean; botUsername?: string; botDisplayName?: string; enabled: boolean; lastVerifiedAt?: string; lastError?: string; createdAt: string; updatedAt: string }) {
+  return {
+    id: channel.id,
+    type: channel.type,
+    name: channel.name,
+    bot_token_configured: channel.botTokenConfigured,
+    bot_token_hint: channel.botTokenHint,
+    proxy_configured: channel.proxyConfigured,
+    proxy_url_hint: channel.proxyUrlHint,
+    proxy_enabled: channel.proxyEnabled,
+    bot_username: channel.botUsername,
+    bot_display_name: channel.botDisplayName,
+    enabled: channel.enabled,
+    last_verified_at: channel.lastVerifiedAt,
+    last_error: channel.lastError,
+    created_at: channel.createdAt,
+    updated_at: channel.updatedAt
+  };
+}
+
+function serializeNotificationTarget(target: NotificationTarget) {
+  return {
+    id: target.id,
+    channel_id: target.channelId,
+    name: target.name,
+    chat_id: target.chatId,
+    enabled: target.enabled,
+    created_at: target.createdAt,
+    updated_at: target.updatedAt
+  };
+}
+
+function serializeTelegramChat(chat: { id: string; type: string; title?: string; username?: string; firstName?: string; lastName?: string; alreadyConfigured: boolean }) {
+  return {
+    id: chat.id,
+    type: chat.type,
+    title: chat.title,
+    username: chat.username,
+    first_name: chat.firstName,
+    last_name: chat.lastName,
+    already_configured: chat.alreadyConfigured
+  };
+}
+
+function serializeReportDelivery(delivery: { id: string; reportGenerationId: string; channelId: string; channelName?: string; targetId: string; targetName?: string; chatId?: string; status: string; attemptCount: number; messageCount?: number; lastError?: string; createdAt: string; startedAt?: string; sentAt?: string; completedAt?: string }) {
+  return {
+    id: delivery.id,
+    report_generation_id: delivery.reportGenerationId,
+    channel_id: delivery.channelId,
+    channel_name: delivery.channelName,
+    target_id: delivery.targetId,
+    target_name: delivery.targetName,
+    chat_id: delivery.chatId,
+    status: delivery.status,
+    attempt_count: delivery.attemptCount,
+    message_count: delivery.messageCount,
+    last_error: delivery.lastError,
+    created_at: delivery.createdAt,
+    started_at: delivery.startedAt,
+    sent_at: delivery.sentAt,
+    completed_at: delivery.completedAt
+  };
+}
+
 function serializeReport(report: ReportGeneration, publicBaseUrl?: string) {
   return {
     id: report.id,
@@ -635,6 +845,12 @@ function parseScheduleRecurrence(value: string): ScheduleRecurrence {
   return value;
 }
 
+function parseScheduleStatus(value: string): ScheduleStatus {
+  const values: ScheduleStatus[] = ["active", "completed", "cancelled"];
+  if (!values.includes(value as ScheduleStatus)) throw invalidPayload("schedule status is invalid");
+  return value as ScheduleStatus;
+}
+
 function parseAuthorizationExpiry(value: string): AuthorizationExpiry {
   const values: AuthorizationExpiry[] = ["24h", "7d", "30d", "never"];
   if (!values.includes(value as AuthorizationExpiry)) throw invalidPayload("expires_in must be 24h, 7d, 30d, or never");
@@ -651,6 +867,12 @@ function parseReportStatus(value: string): ReportGenerationStatus {
   const values: ReportGenerationStatus[] = ["pending", "running", "completed", "failed"];
   if (!values.includes(value as ReportGenerationStatus)) throw invalidPayload("status is invalid");
   return value as ReportGenerationStatus;
+}
+
+function parseReportTrigger(value: string): ReportGenerationTrigger {
+  const values: ReportGenerationTrigger[] = ["automatic", "manual", "retry"];
+  if (!values.includes(value as ReportGenerationTrigger)) throw invalidPayload("trigger is invalid");
+  return value as ReportGenerationTrigger;
 }
 
 function writeJson(response: ServerResponse, statusCode: number, payload: unknown, corsOrigin: string): void {

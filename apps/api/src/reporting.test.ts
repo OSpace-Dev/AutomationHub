@@ -467,6 +467,11 @@ test("automatically generates a report after task completion and supports manual
   assert.equal(listed.body.data.length, 2);
   assert.equal("content" in listed.body.data[0], false);
 
+  const manualOnly = await request("/api/v1/admin/reports?trigger=manual&page=1&page_size=20");
+  assert.equal(manualOnly.response.status, 200);
+  assert.equal(manualOnly.body.meta.total, 1);
+  assert.equal(manualOnly.body.data[0].trigger, "manual");
+
   chatResponseMode = "invalid-json";
   const invalidResponse = await request("/api/v1/admin/reports", { method: "POST", body: JSON.stringify({ run_id: runId }) });
   const invalidReport = await waitForReport((entry) => entry.id === invalidResponse.body.data.id && entry.status === "failed");

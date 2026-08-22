@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AddressInfo } from "node:net";
@@ -37,6 +37,21 @@ async function request(path: string, init: RequestInit = {}): Promise<{ response
   });
   return { response, body: await response.json() };
 }
+
+test("exposes authentication status without exposing the admin key", async () => {
+  const status = await request("/api/v1/admin/auth-status");
+  assert.equal(status.response.status, 200);
+  assert.deepEqual(status.body.data, { auth_enabled: true, key_configured: true });
+  assert.doesNotMatch(JSON.stringify(status.body), /admin-test-key/);
+
+  const unauthenticated = await request("/api/v1/admin/session");
+  assert.equal(unauthenticated.response.status, 403);
+  assert.equal(unauthenticated.body.code, "admin_forbidden");
+
+  const authenticated = await request("/api/v1/admin/session", { headers: { "x-admin-key": "admin-test-key" } });
+  assert.equal(authenticated.response.status, 200);
+  assert.deepEqual(authenticated.body.data, { authenticated: true });
+});
 
 test("registers a device and enforces one-time registration", async () => {
   const registered = await request("/api/v1/devices/register", {
@@ -169,6 +184,11 @@ test("materializes one-time and daily schedules without duplicate claims", async
   assert.equal(dailyState.status, "active");
   assert.ok(new Date(dailyState.next_run_at).getTime() > Date.now());
 
+  const activeDailySchedules = await request(`/api/v1/admin/schedules?device_id=${encodeURIComponent(scheduledDeviceId)}&status=active&recurrence=daily`, { headers: { "x-admin-key": "admin-test-key" } });
+  assert.equal(activeDailySchedules.response.status, 200);
+  assert.equal(activeDailySchedules.body.meta.total, 1);
+  assert.equal(activeDailySchedules.body.data[0].id, daily.body.data.id);
+
   const cancelled = await request(`/api/v1/admin/schedules/${daily.body.data.id}`, {
     method: "DELETE",
     headers: { "x-admin-key": "admin-test-key" }
@@ -285,6 +305,12 @@ test("supports heartbeat, idempotent runs, partial uploads, and revoke", async (
   assert.equal(taskPage.body.meta.total, 2);
   assert.equal(taskPage.body.meta.page_size, 1);
   assert.equal(taskPage.body.meta.total_pages, 2);
+
+  const allTasks = await request(`/api/v1/admin/tasks?device_id=${encodeURIComponent(deviceId)}&page=1&page_size=20`, { headers: { "x-admin-key": "admin-test-key" } });
+  assert.equal(allTasks.body.meta.total, 2);
+  const cancelledTasks = await request(`/api/v1/admin/tasks?device_id=${encodeURIComponent(deviceId)}&status=cancelled&page=1&page_size=20`, { headers: { "x-admin-key": "admin-test-key" } });
+  assert.equal(cancelledTasks.body.meta.total, 1);
+  assert.equal(cancelledTasks.body.data[0].id, cancellableTaskId);
 
   const logs = await request(`/api/v1/admin/logs?device_id=${encodeURIComponent(deviceId)}&limit=10`, { headers: { "x-admin-key": "admin-test-key" } });
   assert.equal(logs.response.status, 200);
@@ -403,6 +429,72 @@ test("supports local development mode without registration or admin keys", async
   } finally {
     await new Promise<void>((resolve, reject) => localServer.close((error) => error ? reject(error) : resolve()));
     await rm(localDirectory, { recursive: true, force: true });
+  }
+});
+
+test("notification channel API accepts proxy settings and returns only a credential-free hint", async () => {
+  const proxyDirectory = await mkdtemp(join(tmpdir(), "automation-hub-proxy-api-"));
+  const storePath = join(proxyDirectory, "store.json");
+  const proxyStore = new FileStore(storePath);
+  await proxyStore.initialize();
+  const proxyRequests: string[] = [];
+  const proxyServer = createApiServer({
+    store: proxyStore,
+    corsOrigin: "http://localhost:5173",
+    authEnabled: false,
+    modelEncryptionKey: "proxy-api-test-encryption-key",
+    telegramProxyRequest: async (url) => {
+      proxyRequests.push(url);
+      return {
+        ok: true,
+        status: 200,
+        body: { ok: true, result: { id: 77, username: "api_proxy_bot", first_name: "API Proxy Bot" } }
+      };
+    }
+  });
+  await new Promise<void>((resolve) => proxyServer.listen(0, resolve));
+  const address = proxyServer.address() as AddressInfo;
+  const proxyBaseUrl = `http://127.0.0.1:${address.port}`;
+  const proxyUrl = "https://api-user:api-password@proxy.example.test:8443";
+  const proxyRequest = async (path: string, init: RequestInit = {}) => {
+    const response = await fetch(`${proxyBaseUrl}${path}`, {
+      ...init,
+      headers: { "content-type": "application/json", ...(init.headers ?? {}) }
+    });
+    return { response, body: await response.json() };
+  };
+
+  try {
+    const created = await proxyRequest("/api/v1/admin/notification-channels", {
+      method: "POST",
+      body: JSON.stringify({
+        type: "telegram",
+        name: "API 代理 Bot",
+        bot_token: "777777:api-token",
+        proxy_url: proxyUrl,
+        proxy_enabled: true,
+        enabled: true
+      })
+    });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.body.data.proxy_enabled, true);
+    assert.equal(created.body.data.proxy_configured, true);
+    assert.equal(created.body.data.proxy_url_hint, "https://proxy.example.test:8443");
+    assert.equal("proxy_url" in created.body.data, false);
+    assert.doesNotMatch(JSON.stringify(created.body), /api-password|api-user|777777:api-token/);
+    assert.equal(proxyRequests.length, 1);
+
+    const listed = await proxyRequest("/api/v1/admin/notification-channels");
+    assert.equal(listed.body.data[0].proxy_url_hint, "https://proxy.example.test:8443");
+    assert.doesNotMatch(JSON.stringify(listed.body), /api-password|api-user|777777:api-token/);
+
+    const raw = await readFile(storePath, "utf8");
+    assert.match(raw, /api-password|api-user/);
+    assert.doesNotMatch(raw, /777777:api-token/);
+  } finally {
+    await new Promise<void>((resolve, reject) => proxyServer.close((error) => error ? reject(error) : resolve()));
+    await proxyStore.close();
+    await rm(proxyDirectory, { recursive: true, force: true });
   }
 });
 

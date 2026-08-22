@@ -1,4 +1,19 @@
 services:
+  postgres:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PGDATABASE:-automationhub}
+      POSTGRES_USER: ${PGUSER:-automationhub}
+      POSTGRES_PASSWORD: ${PGPASSWORD:?PGPASSWORD must be set}
+    volumes:
+      - automationhub-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   automation-hub:
     build:
       context: .
@@ -7,10 +22,14 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      STORAGE_DRIVER: postgres
     ports:
       - "${AUTOMATION_HUB_PORT:-3000}:3000"
-    volumes:
-      - automationhub-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
-  automationhub-data:
+  automationhub-postgres-data:
+    name: automationhub-postgres-data
