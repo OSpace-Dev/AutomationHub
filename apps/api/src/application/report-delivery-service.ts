@@ -1,6 +1,6 @@
-import { SecretVault, createId } from "./crypto.js";
-import { ApiError } from "./errors.js";
-import type { NotificationChannel, NotificationTarget } from "./models.js";
+import { SecretVault, createId } from "../shared/crypto.js";
+import { ApiError } from "../shared/errors.js";
+import type { NotificationChannel, NotificationTarget } from "../domain/models.js";
 import {
   channelNotFound,
   chatLabel,
@@ -25,10 +25,10 @@ import {
   type NotificationTargetInput,
   type ReportDeliveryView,
   type TelegramChatView
-} from "./application/notification-formatters.js";
-import type { Store } from "./store.js";
-import { TelegramClient, type TelegramChat } from "./telegram-service.js";
-import { NotificationWorker } from "./application/notification-worker.js";
+} from "./notification-formatters.js";
+import type { NotificationPersistencePort } from "./ports/notification-persistence-port.js";
+import { TelegramClient, type TelegramChat } from "../infrastructure/notifications/telegram-client.js";
+import { NotificationWorker } from "./notification-worker.js";
 
 const MAX_ERROR_LENGTH = 240;
 export type {
@@ -37,18 +37,18 @@ export type {
   NotificationTargetInput,
   ReportDeliveryView,
   TelegramChatView
-} from "./application/notification-formatters.js";
+} from "./notification-formatters.js";
 
 export class ReportDeliveryService {
   private readonly worker: NotificationWorker;
 
   constructor(
-    private readonly store: Store,
+    private readonly persistence: NotificationPersistencePort,
     private readonly vault: SecretVault,
     private readonly telegram = new TelegramClient(),
     private readonly publicBaseUrl?: string
   ) {
-    this.worker = new NotificationWorker(store, vault, telegram, publicBaseUrl);
+    this.worker = new NotificationWorker(persistence, vault, telegram, publicBaseUrl);
   }
 
   async start(): Promise<void> {
@@ -64,7 +64,7 @@ export class ReportDeliveryService {
   }
 
   async listChannels(): Promise<NotificationChannelView[]> {
-    const data = await this.store.read();
+    const data = await this.persistence.readSnapshot();
     return data.notificationChannels
       .slice()
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -78,7 +78,7 @@ export class ReportDeliveryService {
     const proxyEnabled = input.proxyEnabled ?? false;
     requireEnabledProxy(proxyEnabled, proxyUrl);
     const bot = await this.telegram.getMe(token, proxyEnabled ? proxyUrl : undefined);
-    return this.store.update((data) => {
+    return this.persistence.update((data) => {
       const now = new Date().toISOString();
       const channel: NotificationChannel = {
         id: createId(),
@@ -102,7 +102,7 @@ export class ReportDeliveryService {
   }
 
   async updateChannel(id: string, input: Partial<NotificationChannelInput>): Promise<NotificationChannelView> {
-    const data = await this.store.read();
+    const data = await this.persistence.readSnapshot();
     const existing = findChannel(data, id);
     const replacementToken = input.botToken?.trim();
     const token = replacementToken || this.vault.decrypt(existing.encryptedBotToken);
@@ -119,7 +119,7 @@ export class ReportDeliveryService {
     const bot = shouldVerify
       ? await this.telegram.getMe(token, proxyEnabled ? proxyUrl : undefined)
       : undefined;
-    return this.store.update((data) => {
+    return this.persistence.update((data) => {
       const channel = findChannel(data, id);
       if (input.name !== undefined) channel.name = requiredName(input.name);
       if (input.enabled !== undefined) channel.enabled = input.enabled;
@@ -147,7 +147,7 @@ export class ReportDeliveryService {
   }
 
   async removeChannel(id: string): Promise<NotificationChannelView> {
-    return this.store.update((data) => {
+    return this.persistence.update((data) => {
       const index = data.notificationChannels.findIndex((entry) => entry.id === id);
       if (index < 0) throw channelNotFound();
       const [channel] = data.notificationChannels.splice(index, 1);
@@ -157,14 +157,14 @@ export class ReportDeliveryService {
   }
 
   async verifyChannel(id: string): Promise<NotificationChannelView> {
-    const data = await this.store.read();
+    const data = await this.persistence.readSnapshot();
     const channel = findChannel(data, id);
     try {
       const bot = await this.telegram.getMe(
         this.vault.decrypt(channel.encryptedBotToken),
         enabledProxyUrl(channel, this.vault)
       );
-      return this.store.update((next) => {
+      return this.persistence.update((next) => {
         const current = findChannel(next, id);
         current.botUsername = bot.username;
         current.botDisplayName = bot.firstName;
@@ -180,7 +180,7 @@ export class ReportDeliveryService {
   }
 
   async discoverChats(channelId: string): Promise<TelegramChatView[]> {
-    const data = await this.store.read();
+    const data = await this.persistence.readSnapshot();
     const channel = findChannel(data, channelId);
     try {
       const updates = await this.telegram.getUpdates(
@@ -210,7 +210,7 @@ export class ReportDeliveryService {
   }
 
   async sendTestChat(channelId: string, chatId: string): Promise<void> {
-    const data = await this.store.read();
+    const data = await this.persistence.readSnapshot();
     const channel = findChannel(data, channelId);
     await this.telegram.sendMessage(
       this.vault.decrypt(channel.encryptedBotToken),
@@ -221,7 +221,7 @@ export class ReportDeliveryService {
   }
 
   async listTargets(channelId: string): Promise<NotificationTarget[]> {
-    const data = await this.store.read();
+    const data = await this.persistence.readSnapshot();
     findChannel(data, channelId);
     return data.notificationTargets
       .filter((target) => target.channelId === channelId)
@@ -230,7 +230,7 @@ export class ReportDeliveryService {
   }
 
   async createTarget(channelId: string, input: NotificationTargetInput): Promise<NotificationTarget> {
-    return this.store.update((data) => {
+    return this.persistence.update((data) => {
       findChannel(data, channelId);
       const now = new Date().toISOString();
       const target: NotificationTarget = {
@@ -248,7 +248,7 @@ export class ReportDeliveryService {
   }
 
   async updateTarget(channelId: string, targetId: string, input: Partial<NotificationTargetInput>): Promise<NotificationTarget> {
-    return this.store.update((data) => {
+    return this.persistence.update((data) => {
       findChannel(data, channelId);
       const target = findTarget(data, channelId, targetId);
       if (input.name !== undefined) target.name = requiredName(input.name);
@@ -260,7 +260,7 @@ export class ReportDeliveryService {
   }
 
   async removeTarget(channelId: string, targetId: string): Promise<NotificationTarget> {
-    return this.store.update((data) => {
+    return this.persistence.update((data) => {
       findChannel(data, channelId);
       const index = data.notificationTargets.findIndex((target) => target.channelId === channelId && target.id === targetId);
       if (index < 0) throw targetNotFound();
@@ -270,7 +270,7 @@ export class ReportDeliveryService {
   }
 
   async sendTest(channelId: string, targetId: string): Promise<void> {
-    const data = await this.store.read();
+    const data = await this.persistence.readSnapshot();
     const channel = findChannel(data, channelId);
     const target = findTarget(data, channelId, targetId);
     const token = this.vault.decrypt(channel.encryptedBotToken);
@@ -289,7 +289,7 @@ export class ReportDeliveryService {
   }
 
   async listDeliveries(reportId: string): Promise<ReportDeliveryView[]> {
-    const data = await this.store.read();
+    const data = await this.persistence.readSnapshot();
     if (!data.reportGenerations.some((report) => report.id === reportId)) {
       throw new ApiError(404, "report_not_found", "Report generation was not found");
     }
@@ -306,7 +306,7 @@ export class ReportDeliveryService {
   }
 
   async retryDelivery(id: string): Promise<ReportDeliveryView> {
-    const delivery = await this.store.update((data) => {
+    const delivery = await this.persistence.update((data) => {
       const current = data.reportDeliveries.find((entry) => entry.id === id);
       if (!current) throw new ApiError(404, "report_delivery_not_found", "Report delivery was not found");
       if (current.status !== "failed") throw new ApiError(409, "report_delivery_not_failed", "Only failed report deliveries can be retried");
@@ -317,12 +317,12 @@ export class ReportDeliveryService {
       return structuredClone(current);
     });
     this.wake();
-    const data = await this.store.read();
+    const data = await this.persistence.readSnapshot();
     return toDeliveryView(delivery, data);
   }
 
   private async createDeliveries(reportId: string, resendExisting: boolean): Promise<ReportDeliveryView[]> {
-    return this.store.update((data) => {
+    return this.persistence.update((data) => {
       const report = data.reportGenerations.find((entry) => entry.id === reportId);
       if (!report) throw new ApiError(404, "report_not_found", "Report generation was not found");
       if (report.status !== "completed") throw new ApiError(409, "report_not_completed", "Only completed reports can be sent");
@@ -361,7 +361,7 @@ export class ReportDeliveryService {
   }
 
   private async recordChannelError(id: string, message: string): Promise<void> {
-    await this.store.update((data) => {
+    await this.persistence.update((data) => {
       const channel = data.notificationChannels.find((entry) => entry.id === id);
       if (!channel) return;
       channel.lastError = message.slice(0, MAX_ERROR_LENGTH);

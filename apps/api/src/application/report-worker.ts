@@ -1,8 +1,8 @@
-import { createOpaqueToken } from "../crypto.js";
-import { ApiError } from "../errors.js";
-import { ModelProviderService } from "../model-service.js";
-import type { ReportGeneration } from "../models.js";
-import type { Store } from "../store.js";
+import { createOpaqueToken } from "../shared/crypto.js";
+import { ApiError } from "../shared/errors.js";
+import { ModelProviderService } from "./model-provider-service.js";
+import type { ReportGeneration } from "../domain/models.js";
+import type { ReportPersistencePort } from "./ports/report-persistence-port.js";
 import { buildReportInsights, findIncompleteProjectUrl, mergeModelAnalyses, parseModelBatch, type ModelProjectAnalysis } from "./report-analysis.js";
 import { findPreviousRun, GitHubTrendingReportSource, type PreparedReportBatch } from "./report-source.js";
 
@@ -44,7 +44,7 @@ export class ReportWorker {
   private readonly modelRequestPacer: ModelRequestPacer;
   private readonly onCompletedReport: ReportWorkerOptions["onCompletedReport"];
 
-  constructor(private readonly store: Store, private readonly providers: ModelProviderService, options: ReportWorkerOptions = {}) {
+  constructor(private readonly persistence: ReportPersistencePort, private readonly providers: ModelProviderService, options: ReportWorkerOptions = {}) {
     this.modelRequestPacer = new ModelRequestPacer(normalizeModelRequestMinInterval(options.modelRequestMinIntervalMs), options.now ?? Date.now, options.sleep ?? sleep);
     this.onCompletedReport = options.onCompletedReport;
   }
@@ -70,9 +70,9 @@ export class ReportWorker {
   }
 
   private async claimNext(): Promise<ReportGeneration | null> {
-    const snapshot = await this.store.read();
+    const snapshot = await this.persistence.readSnapshot();
     if (!snapshot.reportGenerations.some((entry) => entry.status === "pending")) return null;
-    return this.store.update((data) => {
+    return this.persistence.update((data) => {
       const generation = data.reportGenerations.filter((entry) => entry.status === "pending").sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
       if (!generation) return null;
       generation.status = "running";
@@ -84,7 +84,7 @@ export class ReportWorker {
 
   private async processOne(generation: ReportGeneration): Promise<void> {
     try {
-      const data = await this.store.read();
+      const data = await this.persistence.readSnapshot();
       const current = data.reportGenerations.find((entry) => entry.id === generation.id);
       const definition = current && data.reportDefinitions.find((entry) => entry.id === current.definitionId);
       const provider = definition?.providerId && data.modelProviders.find((entry) => entry.id === definition.providerId);
@@ -95,7 +95,7 @@ export class ReportWorker {
       if (!current || !definition || !provider || !run) throw new ApiError(409, "default_model_provider_missing", "Report configuration or source is unavailable");
       const batches = this.source.prepareBatches({ run, items, previousRun, previousItems }, definition);
       const inputItemCount = batches.reduce((sum, batch) => sum + batch.itemCount, 0);
-      await this.store.update((next) => {
+      await this.persistence.update((next) => {
         const target = next.reportGenerations.find((entry) => entry.id === generation.id);
         if (!target) return;
         target.providerName = provider.name;
@@ -109,7 +109,7 @@ export class ReportWorker {
         for (const [projectUrl, analysis] of batchAnalyses) analyses.set(projectUrl, analysis);
       }
       const insights = buildReportInsights(items, previousRun, previousItems, analyses);
-      await this.store.update((next) => {
+      await this.persistence.update((next) => {
         const target = next.reportGenerations.find((entry) => entry.id === generation.id);
         if (!target) return;
         target.status = "completed";
@@ -122,7 +122,7 @@ export class ReportWorker {
       void this.onCompletedReport?.(generation.id);
     } catch (error) {
       const safe = error instanceof ApiError ? error : new ApiError(502, "report_generation_failed", "Report generation failed", true);
-      await this.store.update((data) => {
+      await this.persistence.update((data) => {
         const target = data.reportGenerations.find((entry) => entry.id === generation.id);
         if (!target) return;
         target.status = "failed";
@@ -158,9 +158,9 @@ export class ReportWorker {
   }
 
   private async recoverInterrupted(): Promise<void> {
-    const snapshot = await this.store.read();
+    const snapshot = await this.persistence.readSnapshot();
     if (!snapshot.reportGenerations.some((generation) => generation.status === "running")) return;
-    await this.store.update((data) => {
+    await this.persistence.update((data) => {
       for (const generation of data.reportGenerations) if (generation.status === "running") {
         generation.status = "pending";
         generation.startedAt = undefined;
@@ -169,9 +169,9 @@ export class ReportWorker {
   }
 
   private async ensureShareTokens(): Promise<void> {
-    const snapshot = await this.store.read();
+    const snapshot = await this.persistence.readSnapshot();
     if (!snapshot.reportGenerations.some((generation) => !generation.shareToken)) return;
-    await this.store.update((data) => {
+    await this.persistence.update((data) => {
       for (const generation of data.reportGenerations) if (!generation.shareToken) generation.shareToken = createOpaqueToken();
     });
   }

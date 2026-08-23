@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "node:http";
-import { ApiError } from "../errors.js";
-import type { CollectionService } from "../service.js";
-import type { Device } from "../models.js";
+import { ApiError } from "../shared/errors.js";
+import type { CollectionService } from "../application/collection-service.js";
+import type { Device } from "../domain/models.js";
 
 export interface AuthOptions {
   adminApiKey?: string;

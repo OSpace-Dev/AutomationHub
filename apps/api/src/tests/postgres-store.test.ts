@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PostgresStore } from "./postgres-store.js";
+import { PostgresStore } from "../infrastructure/persistence/postgres-store.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 

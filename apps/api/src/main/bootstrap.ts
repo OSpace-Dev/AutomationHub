@@ -1,6 +1,6 @@
 import type { Server } from "node:http";
-import { createApiServer, type ServerOptions } from "../server.js";
-import type { Store } from "../store.js";
+import { createApiServer, type ServerOptions } from "../http/server.js";
+import type { Store } from "../application/ports/store.js";
 
 export interface BootstrapOptions extends ServerOptions {
   store: Store;

@@ -4,11 +4,12 @@ import { join } from "node:path";
 import { type AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { ApiKeyVault } from "./crypto.js";
-import { ModelProviderService, OpenAiCompatibleClient } from "./model-service.js";
-import { GitHubTrendingReportSource, ReportGenerationService } from "./report-service.js";
-import { createApiServer } from "./server.js";
-import { FileStore } from "./store.js";
+import { ApiKeyVault } from "../shared/crypto.js";
+import { ModelProviderService, OpenAiCompatibleClient } from "../application/model-provider-service.js";
+import { GitHubTrendingReportSource, ReportGenerationService } from "../application/report-generation-service.js";
+import { createApiServer } from "../http/server.js";
+import { FileStore } from "../infrastructure/persistence/file-store.js";
+import { StoreBackedReportPersistenceAdapter } from "../infrastructure/persistence/store-backed-report-persistence-adapter.js";
 
 let baseUrl = "";
 let server: ReturnType<typeof createApiServer>;
@@ -227,7 +228,7 @@ test("generates and merges every project across streamed batches", async () => {
   );
   let now = 0;
   const waits: number[] = [];
-  const reports = new ReportGenerationService(batchStore, providers, {
+  const reports = new ReportGenerationService(new StoreBackedReportPersistenceAdapter(batchStore), providers, {
     modelRequestMinIntervalMs: 60_000,
     now: () => now,
     sleep: async (milliseconds) => {
@@ -539,7 +540,7 @@ test("recovers every interrupted running report when the worker restarts", async
     new ApiKeyVault("recovery-test-encryption-key"),
     new OpenAiCompatibleClient(modelFetch)
   );
-  const recoveryReports = new ReportGenerationService(recoveryStore, recoveryProviders, { modelRequestMinIntervalMs: 0 });
+  const recoveryReports = new ReportGenerationService(new StoreBackedReportPersistenceAdapter(recoveryStore), recoveryProviders, { modelRequestMinIntervalMs: 0 });
   try {
     await recoveryReports.start();
     const recovered = await waitForStoredReport(recoveryStore, "interrupted-report", "failed");

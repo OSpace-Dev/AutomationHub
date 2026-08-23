@@ -1,7 +1,7 @@
-import { createId, createOpaqueToken, createRegistrationCode, hashSecret } from "../crypto.js";
-import { ApiError } from "../errors.js";
-import type { Device, DeviceToken, RegistrationCode, StoreData } from "../models.js";
-import type { Store } from "../store.js";
+import { createId, createOpaqueToken, createRegistrationCode, hashSecret } from "../shared/crypto.js";
+import { ApiError } from "../shared/errors.js";
+import type { Device, DeviceToken, RegistrationCode, StoreData } from "../domain/models.js";
+import type { Store } from "./ports/store.js";
 
 const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -24,6 +24,12 @@ export interface TokenPair {
   accessTokenExpiresAt: string;
   refreshToken: string;
   refreshTokenExpiresAt: string;
+}
+
+export function requireActiveDevice(data: StoreData, deviceId: string): Device {
+  const device = data.devices.find((entry) => entry.id === deviceId);
+  if (!device || device.status !== "active") throw new ApiError(403, "device_revoked", "Device is revoked");
+  return device;
 }
 
 export class DeviceAuthService {
@@ -140,9 +146,7 @@ export class DeviceAuthService {
   }
 
   requireActiveDevice(data: StoreData, deviceId: string): Device {
-    const device = data.devices.find((entry) => entry.id === deviceId);
-    if (!device || device.status !== "active") throw new ApiError(403, "device_revoked", "Device is revoked");
-    return device;
+    return requireActiveDevice(data, deviceId);
   }
 
   private revokeDeviceInData(data: StoreData, deviceId: string, revokedAt: string): void {

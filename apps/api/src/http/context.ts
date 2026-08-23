@@ -1,9 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { ModelProviderService } from "../model-service.js";
-import type { ReportDeliveryService } from "../notification-service.js";
-import type { ReportGenerationService } from "../report-service.js";
-import type { CollectionService } from "../service.js";
-import type { ServerOptions } from "../server.js";
+import type { ModelProviderService } from "../application/model-provider-service.js";
+import type { ReportDeliveryService } from "../application/report-delivery-service.js";
+import type { ReportGenerationService } from "../application/report-generation-service.js";
+import type { CollectionService } from "../application/collection-service.js";
+import type { ServerOptions } from "./server.js";
 import type { AuthContext } from "./auth.js";
 
 export interface HttpContext {

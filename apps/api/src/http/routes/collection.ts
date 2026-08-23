@@ -1,10 +1,10 @@
-import { invalidPayload } from "../../errors.js";
+import { invalidPayload } from "../../shared/errors.js";
 import type { HttpContext } from "../context.js";
 import { readJson, requireHeader } from "../request.js";
 import { writeJson } from "../response.js";
-import type { ProjectSnapshot } from "../../models.js";
-import { optionalNonNegativeInteger, requireInteger, requireObject, requireString } from "../../validation.js";
-import { optionalString } from "../../validation.js";
+import type { ProjectSnapshot } from "../../domain/models.js";
+import { optionalNonNegativeInteger, requireInteger, requireObject, requireString } from "../../shared/validation.js";
+import { optionalString } from "../../shared/validation.js";
 
 export async function routeCollection(context: HttpContext): Promise<boolean> {
   const { request, response, url, service, options, auth } = context;

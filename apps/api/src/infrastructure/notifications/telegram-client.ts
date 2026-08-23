@@ -1,7 +1,7 @@
 import { request as httpRequest, type Agent } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { ProxyAgent } from "proxy-agent";
-import { ApiError } from "./errors.js";
+import { ApiError } from "../../shared/errors.js";
 
 const TELEGRAM_TIMEOUT_MS = 15_000;
 const TELEGRAM_MAX_TEXT_LENGTH = 4_096;

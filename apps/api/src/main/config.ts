@@ -1,6 +1,7 @@
-import { PostgresStore } from "../postgres-store.js";
-import { SqliteStore } from "../sqlite-store.js";
-import { FileStore, type Store } from "../store.js";
+import { PostgresStore } from "../infrastructure/persistence/postgres-store.js";
+import { SqliteStore } from "../infrastructure/persistence/sqlite-store.js";
+import { FileStore } from "../infrastructure/persistence/file-store.js";
+import type { Store } from "../application/ports/store.js";
 
 export interface ApiConfig {
   port: number;

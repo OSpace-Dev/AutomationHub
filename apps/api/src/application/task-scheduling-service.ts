@@ -1,28 +1,24 @@
-import { createId } from "../crypto.js";
-import { ApiError, invalidPayload } from "../errors.js";
-import type { CollectionTask, Device, ScheduleRecurrence, StoreData, TaskSchedule, TaskStatus, TaskType } from "../models.js";
-import type { Store } from "../store.js";
-import { DeviceAuthService } from "./device-auth-service.js";
+import { createId } from "../shared/crypto.js";
+import { ApiError, invalidPayload } from "../shared/errors.js";
+import type { CollectionTask, Device, ScheduleRecurrence, StoreData, TaskSchedule, TaskStatus, TaskType } from "../domain/models.js";
+import type { CollectionWritePort } from "./ports/collection-write-port.js";
+import { requireActiveDevice } from "./device-auth-service.js";
 import { RuntimeLogService } from "./runtime-log-service.js";
 
 const TASK_LEASE_TIMEOUT_MS = 2 * 60 * 1000;
 
 export class TaskSchedulingService {
-  private readonly deviceAuth: DeviceAuthService;
-
-  constructor(private readonly store: Store, private readonly runtimeLogs: RuntimeLogService) {
-    this.deviceAuth = new DeviceAuthService(store);
-  }
+  constructor(private readonly writes: CollectionWritePort, private readonly runtimeLogs: RuntimeLogService) {}
 
   async createTask(input: { deviceId: string; type: TaskType; businessDate: string; idempotencyKey: string }): Promise<{ task: CollectionTask; created: boolean }> {
-    return this.store.update((data) => {
+    return this.writes.update((data) => {
       this.requireActiveDevice(data, input.deviceId);
       return this.createTaskInData(data, input);
     });
   }
 
   async createSchedule(input: { deviceId: string; type: TaskType; recurrence: ScheduleRecurrence; startAt: string; timeZone: string; idempotencyKey: string }): Promise<{ schedule: TaskSchedule; created: boolean }> {
-    return this.store.update((data) => {
+    return this.writes.update((data) => {
       this.requireActiveDevice(data, input.deviceId);
       const existing = data.schedules.find((entry) => entry.deviceId === input.deviceId && entry.idempotencyKey === input.idempotencyKey);
       if (existing) return { schedule: structuredClone(existing), created: false };
@@ -47,7 +43,7 @@ export class TaskSchedulingService {
   }
 
   async cancelSchedule(scheduleId: string): Promise<TaskSchedule> {
-    return this.store.update((data) => {
+    return this.writes.update((data) => {
       const schedule = data.schedules.find((entry) => entry.id === scheduleId);
       if (!schedule) throw new ApiError(404, "schedule_not_found", "Schedule was not found");
       if (schedule.status !== "active") throw new ApiError(409, "schedule_not_active", "Only active schedules can be cancelled");
@@ -59,7 +55,7 @@ export class TaskSchedulingService {
   }
 
   async claimNextTask(deviceId: string): Promise<CollectionTask | null> {
-    return this.store.update((data) => {
+    return this.writes.update((data) => {
       this.requireActiveDevice(data, deviceId);
       this.materializeDueSchedules(data, deviceId, new Date());
       const leaseCutoff = Date.now() - TASK_LEASE_TIMEOUT_MS;
@@ -84,7 +80,7 @@ export class TaskSchedulingService {
   }
 
   async updateTask(deviceId: string, taskId: string, input: { status: TaskStatus; runId?: string; errorCode?: string }): Promise<CollectionTask> {
-    return this.store.update((data) => {
+    return this.writes.update((data) => {
       this.requireActiveDevice(data, deviceId);
       const task = data.tasks.find((entry) => entry.id === taskId && entry.deviceId === deviceId);
       if (!task) throw new ApiError(404, "task_not_found", "Task was not found");
@@ -109,7 +105,7 @@ export class TaskSchedulingService {
   }
 
   async cancelTask(taskId: string): Promise<CollectionTask> {
-    return this.store.update((data) => {
+    return this.writes.update((data) => {
       const task = data.tasks.find((entry) => entry.id === taskId);
       if (!task) throw new ApiError(404, "task_not_found", "Task was not found");
       if (!["pending", "running", "paused"].includes(task.status)) throw new ApiError(409, "task_not_cancellable", "Only pending, running, or paused tasks can be cancelled");
@@ -122,7 +118,7 @@ export class TaskSchedulingService {
   }
 
   requireActiveDevice(data: StoreData, deviceId: string): Device {
-    return this.deviceAuth.requireActiveDevice(data, deviceId);
+    return requireActiveDevice(data, deviceId);
   }
 
   private createTaskInData(data: StoreData, input: { deviceId: string; type: TaskType; businessDate: string; idempotencyKey: string; scheduleId?: string }): { task: CollectionTask; created: boolean } {

@@ -1,5 +1,6 @@
-import { ApiError } from "../errors.js";
-import type { CollectionRun, ProjectSnapshot, ReportDefinition, StoreData } from "../models.js";
+import { ApiError } from "../shared/errors.js";
+import type { CollectionRun, ProjectSnapshot, ReportDefinition } from "../domain/models.js";
+import type { ReportRunData } from "./ports/report-persistence-port.js";
 
 const MAX_README_CHARS = 1_500;
 const MAX_BATCH_INPUT_CHARS = 18_000;
@@ -82,7 +83,7 @@ export function stripHtml(value: string): string {
   return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-export function findPreviousRun(data: StoreData, currentRun: CollectionRun): CollectionRun | undefined {
+export function findPreviousRun(data: ReportRunData, currentRun: CollectionRun): CollectionRun | undefined {
   const runIdsWithItems = new Set(data.items.map((item) => item.runId));
   return data.runs
     .filter((run) => run.id !== currentRun.id

@@ -1,10 +1,10 @@
-import { invalidPayload } from "../../errors.js";
-import type { ReportGeneration, ReportGenerationStatus, ReportGenerationTrigger } from "../../models.js";
+import { invalidPayload } from "../../shared/errors.js";
+import type { ReportGeneration, ReportGenerationStatus, ReportGenerationTrigger } from "../../domain/models.js";
 import type { HttpContext } from "../context.js";
 import { pageMeta, readJson, readPage, readPageSize } from "../request.js";
 import { writeJson } from "../response.js";
 import { serializeReportInsights } from "../serializers.js";
-import { requireObject, requireString } from "../../validation.js";
+import { requireObject, requireString } from "../../shared/validation.js";
 
 export async function routeAdminReports(context: HttpContext): Promise<boolean> {
   const { request, response, url, reports, deliveries, options } = context;

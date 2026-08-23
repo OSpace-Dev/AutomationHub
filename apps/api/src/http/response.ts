@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
-import { ApiError } from "../errors.js";
+import { ApiError } from "../shared/errors.js";
 
 export function writeJson(response: ServerResponse, statusCode: number, payload: unknown, corsOrigin: string): void {
   response.writeHead(statusCode, {

@@ -1,13 +1,13 @@
 import { Pool, type PoolConfig } from "pg";
-import { createId, hashSecret } from "./crypto.js";
+import { createId, hashSecret } from "../../shared/crypto.js";
 import {
   hydrateStoreData,
   snapshotEntities,
   STORE_COLLECTIONS,
   type StoredEntityRow
 } from "./entity-store.js";
-import type { StoreData } from "./models.js";
-import type { Store } from "./store.js";
+import type { StoreData } from "../../domain/models.js";
+import type { Store } from "../../application/ports/store.js";
 
 const BOOTSTRAP_CODE_TTL_MS = 24 * 60 * 60 * 1000;
 const MIGRATION_LOCK_KEY = 7_431_002_026;

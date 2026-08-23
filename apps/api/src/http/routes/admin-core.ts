@@ -1,10 +1,10 @@
-import { invalidPayload } from "../../errors.js";
-import type { RegistrationCode } from "../../models.js";
+import { invalidPayload } from "../../shared/errors.js";
+import type { RegistrationCode } from "../../domain/models.js";
 import type { HttpContext } from "../context.js";
 import { pageMeta, readPage, readPageSize, readJson } from "../request.js";
 import { writeJson } from "../response.js";
 import { serializeDevice } from "./devices.js";
-import { requireObject, requireString } from "../../validation.js";
+import { requireObject, requireString } from "../../shared/validation.js";
 
 export async function routeAdminCore(context: HttpContext): Promise<boolean> {
   const { request, response, url, service, options } = context;

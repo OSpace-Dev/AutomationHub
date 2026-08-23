@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { EMPTY_STORE } from "./models.js";
-import { StoreBackedCollectionQueryAdapter } from "./infrastructure/persistence/store-backed-collection-query-adapter.js";
-import type { Store } from "./store.js";
+import { EMPTY_STORE } from "../domain/models.js";
+import { StoreBackedCollectionQueryAdapter } from "../infrastructure/persistence/store-backed-collection-query-adapter.js";
+import { StoreBackedCollectionWriteAdapter } from "../infrastructure/persistence/store-backed-collection-write-adapter.js";
+import type { Store } from "../application/ports/store.js";
 
 test("StoreBackedCollectionQueryAdapter reads collection query data without exposing Store mutations", async () => {
   const store: Store = {
@@ -30,4 +31,33 @@ test("StoreBackedCollectionQueryAdapter reads collection query data without expo
   assert.deepEqual(snapshot.devices.map((device) => device.id), ["device-one"]);
   assert.deepEqual(snapshot.tasks.map((task) => task.id), ["task-one"]);
   assert.deepEqual(snapshot.schedules.map((schedule) => schedule.id), ["schedule-one"]);
+  assert.deepEqual(snapshot.logs, []);
+});
+
+test("StoreBackedCollectionWriteAdapter delegates mutations to Store without adding a second transaction", async () => {
+  const store: Store = {
+    async initialize() {},
+    async read() {
+      return structuredClone(EMPTY_STORE);
+    },
+    async update(mutation) {
+      const data = structuredClone(EMPTY_STORE);
+      return mutation(data);
+    },
+    async close() {}
+  };
+
+  const result = await new StoreBackedCollectionWriteAdapter(store).update((data) => {
+    data.logs.push({
+      id: "log-one",
+      deviceId: "device-one",
+      level: "info",
+      event: "test",
+      message: "test",
+      occurredAt: "2026-08-23T00:00:00.000Z"
+    });
+    return data.logs.length;
+  });
+
+  assert.equal(result, 1);
 });

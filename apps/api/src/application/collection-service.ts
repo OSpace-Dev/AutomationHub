@@ -1,18 +1,19 @@
-import { CollectionQueryService, type PageResult } from "./application/collection-query-service.js";
-import { DeviceAuthService, type AuthorizationExpiry, type TokenPair } from "./application/device-auth-service.js";
-import { CollectionRunService } from "./application/collection-run-service.js";
-import { TaskSchedulingService } from "./application/task-scheduling-service.js";
-import { DeviceLivenessService } from "./application/device-liveness-service.js";
-import { RuntimeLogService } from "./application/runtime-log-service.js";
-import { StoreBackedCollectionQueryAdapter } from "./infrastructure/persistence/store-backed-collection-query-adapter.js";
-import type { CollectionRun, CollectionTask, Device, ProjectSnapshot, RegistrationCode, RuntimeLog, RuntimeLogLevel, ScheduleRecurrence, TaskSchedule, TaskStatus, TaskType } from "./models.js";
-import type { Store } from "./store.js";
+import { CollectionQueryService, type PageResult } from "./collection-query-service.js";
+import { DeviceAuthService, type AuthorizationExpiry, type TokenPair } from "./device-auth-service.js";
+import { CollectionRunService } from "./collection-run-service.js";
+import { TaskSchedulingService } from "./task-scheduling-service.js";
+import { DeviceLivenessService } from "./device-liveness-service.js";
+import { RuntimeLogService } from "./runtime-log-service.js";
+import { StoreBackedCollectionQueryAdapter } from "../infrastructure/persistence/store-backed-collection-query-adapter.js";
+import { StoreBackedCollectionWriteAdapter } from "../infrastructure/persistence/store-backed-collection-write-adapter.js";
+import type { CollectionRun, CollectionTask, Device, ProjectSnapshot, RegistrationCode, RuntimeLog, RuntimeLogLevel, ScheduleRecurrence, TaskSchedule, TaskStatus, TaskType } from "../domain/models.js";
+import type { Store } from "./ports/store.js";
 
-export type { AuthorizationExpiry, TokenPair } from "./application/device-auth-service.js";
+export type { AuthorizationExpiry, TokenPair } from "./device-auth-service.js";
 
 const DEFAULT_PAGE_SIZE = 20;
 
-export type { PageResult } from "./application/collection-query-service.js";
+export type { PageResult } from "./collection-query-service.js";
 
 export class CollectionService {
   private readonly deviceAuth: DeviceAuthService;
@@ -24,11 +25,13 @@ export class CollectionService {
 
   constructor(private readonly store: Store) {
     this.deviceAuth = new DeviceAuthService(store);
-    this.collectionQueries = new CollectionQueryService(new StoreBackedCollectionQueryAdapter(store));
-    this.collectionRuns = new CollectionRunService(store);
-    this.runtimeLogs = new RuntimeLogService(store);
-    this.taskScheduling = new TaskSchedulingService(store, this.runtimeLogs);
-    this.deviceLiveness = new DeviceLivenessService(store, this.runtimeLogs);
+    const collectionQueries = new StoreBackedCollectionQueryAdapter(store);
+    this.collectionQueries = new CollectionQueryService(collectionQueries);
+    const collectionWrites = new StoreBackedCollectionWriteAdapter(store);
+    this.collectionRuns = new CollectionRunService(collectionWrites);
+    this.runtimeLogs = new RuntimeLogService(collectionWrites, collectionQueries);
+    this.taskScheduling = new TaskSchedulingService(collectionWrites, this.runtimeLogs);
+    this.deviceLiveness = new DeviceLivenessService(collectionWrites, this.runtimeLogs);
   }
 
   async createRegistrationCode(expiresIn: AuthorizationExpiry): Promise<{ authorization: RegistrationCode; code: string }> {

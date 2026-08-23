@@ -1,8 +1,8 @@
-import { ApiError } from "../errors.js";
-import type { ReportDelivery } from "../models.js";
-import type { SecretVault } from "../crypto.js";
-import type { Store } from "../store.js";
-import { TelegramClient } from "../telegram-service.js";
+import { ApiError } from "../shared/errors.js";
+import type { ReportDelivery } from "../domain/models.js";
+import type { SecretVault } from "../shared/crypto.js";
+import type { NotificationPersistencePort } from "./ports/notification-persistence-port.js";
+import { TelegramClient } from "../infrastructure/notifications/telegram-client.js";
 import {
   enabledProxyUrl,
   formatReportMessage,
@@ -16,7 +16,7 @@ export class NotificationWorker {
   private wakeTimer: NodeJS.Timeout | undefined;
 
   constructor(
-    private readonly store: Store,
+    private readonly persistence: NotificationPersistencePort,
     private readonly vault: SecretVault,
     private readonly telegram: TelegramClient,
     private readonly publicBaseUrl?: string
@@ -57,9 +57,9 @@ export class NotificationWorker {
   }
 
   private async claimNext(): Promise<ReportDelivery | null> {
-    const snapshot = await this.store.read();
+    const snapshot = await this.persistence.readSnapshot();
     if (!snapshot.reportDeliveries.some((entry) => entry.status === "pending")) return null;
-    return this.store.update((data) => {
+    return this.persistence.update((data) => {
       const delivery = data.reportDeliveries
         .filter((entry) => entry.status === "pending")
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
@@ -73,7 +73,7 @@ export class NotificationWorker {
 
   private async processOne(delivery: ReportDelivery): Promise<void> {
     try {
-      const data = await this.store.read();
+      const data = await this.persistence.readSnapshot();
       const current = data.reportDeliveries.find((entry) => entry.id === delivery.id);
       const report = current && data.reportGenerations.find((entry) => entry.id === current.reportGenerationId);
       const channel = current && data.notificationChannels.find((entry) => entry.id === current.channelId);
@@ -85,7 +85,7 @@ export class NotificationWorker {
       const proxyUrl = enabledProxyUrl(channel, this.vault);
       const messages = TelegramClient.splitText(formatReportMessage(report, requirePublicReportUrl(report, this.publicBaseUrl)));
       for (const message of messages) await this.telegram.sendMessage(token, target.chatId, message, proxyUrl);
-      await this.store.update((next) => {
+      await this.persistence.update((next) => {
         const completed = next.reportDeliveries.find((entry) => entry.id === delivery.id);
         if (!completed) return;
         const sentAt = new Date().toISOString();
@@ -97,7 +97,7 @@ export class NotificationWorker {
       });
     } catch (error) {
       const safe = error instanceof ApiError ? error : new ApiError(502, "telegram_send_failed", "Telegram 消息发送失败", true);
-      await this.store.update((data) => {
+      await this.persistence.update((data) => {
         const failed = data.reportDeliveries.find((entry) => entry.id === delivery.id);
         if (!failed) return;
         failed.status = "failed";
@@ -108,9 +108,9 @@ export class NotificationWorker {
   }
 
   private async recoverInterrupted(): Promise<void> {
-    const snapshot = await this.store.read();
+    const snapshot = await this.persistence.readSnapshot();
     if (!snapshot.reportDeliveries.some((delivery) => delivery.status === "sending")) return;
-    await this.store.update((data) => {
+    await this.persistence.update((data) => {
       for (const delivery of data.reportDeliveries) {
         if (delivery.status === "sending") {
           delivery.status = "pending";

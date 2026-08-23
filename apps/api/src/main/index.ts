@@ -1,5 +1,5 @@
-import { bootstrap } from "./main/bootstrap.js";
-import { loadConfig } from "./main/config.js";
+import { bootstrap } from "./bootstrap.js";
+import { loadConfig } from "./config.js";
 
 const config = loadConfig();
 const { store } = config;

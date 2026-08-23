@@ -1,19 +1,15 @@
-import { createId, hashContent } from "../crypto.js";
-import { ApiError, invalidPayload } from "../errors.js";
-import type { CollectionRun, ProjectSnapshot, StoreData } from "../models.js";
-import type { Store } from "../store.js";
-import { DeviceAuthService } from "./device-auth-service.js";
+import { createId, hashContent } from "../shared/crypto.js";
+import { ApiError, invalidPayload } from "../shared/errors.js";
+import type { CollectionRun, ProjectSnapshot, StoreData } from "../domain/models.js";
+import type { CollectionWritePort } from "./ports/collection-write-port.js";
+import { requireActiveDevice } from "./device-auth-service.js";
 
 export class CollectionRunService {
-  private readonly deviceAuth: DeviceAuthService;
-
-  constructor(private readonly store: Store) {
-    this.deviceAuth = new DeviceAuthService(store);
-  }
+  constructor(private readonly writes: CollectionWritePort) {}
 
   async createRun(deviceId: string, input: { businessDate: string; sourceUrl: string; filters: Record<string, string>; idempotencyKey: string }): Promise<{ run: CollectionRun; created: boolean }> {
-    return this.store.update((data) => {
-      this.deviceAuth.requireActiveDevice(data, deviceId);
+    return this.writes.update((data) => {
+      requireActiveDevice(data, deviceId);
       const existing = data.runs.find((run) => run.deviceId === deviceId && run.idempotencyKey === input.idempotencyKey);
       if (existing) return { run: structuredClone(existing), created: false };
 
@@ -36,7 +32,7 @@ export class CollectionRunService {
   }
 
   async uploadItems(deviceId: string, runId: string, items: Array<Omit<ProjectSnapshot, "id" | "runId" | "normalizedProjectUrl" | "contentHash">>): Promise<{ accepted: number; duplicates: number }> {
-    return this.store.update((data) => {
+    return this.writes.update((data) => {
       const run = data.runs.find((entry) => entry.id === runId && entry.deviceId === deviceId);
       if (!run) throw new ApiError(404, "run_not_found", "Collection run was not found", true);
 

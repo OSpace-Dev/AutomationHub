@@ -1,13 +1,13 @@
-import { SecretVault } from "../crypto.js";
-import { ApiError } from "../errors.js";
+import { SecretVault } from "../shared/crypto.js";
+import { ApiError } from "../shared/errors.js";
 import type {
   NotificationChannel,
   NotificationTarget,
   ReportDelivery,
-  ReportGeneration,
-  StoreData
-} from "../models.js";
-import type { TelegramChat } from "../telegram-service.js";
+  ReportGeneration
+} from "../domain/models.js";
+import type { TelegramChat } from "../infrastructure/notifications/telegram-client.js";
+import type { NotificationPersistenceData } from "./ports/notification-persistence-port.js";
 
 const MAX_ERROR_LENGTH = 240;
 const REPORT_SUMMARY_LENGTH = 720;
@@ -66,13 +66,13 @@ export interface ReportDeliveryView {
   completedAt?: string;
 }
 
-export function findChannel(data: StoreData, id: string): NotificationChannel {
+export function findChannel(data: NotificationPersistenceData, id: string): NotificationChannel {
   const channel = data.notificationChannels.find((entry) => entry.id === id);
   if (!channel) throw channelNotFound();
   return channel;
 }
 
-export function findTarget(data: StoreData, channelId: string, targetId: string): NotificationTarget {
+export function findTarget(data: NotificationPersistenceData, channelId: string, targetId: string): NotificationTarget {
   const target = data.notificationTargets.find((entry) => entry.channelId === channelId && entry.id === targetId);
   if (!target) throw targetNotFound();
   return target;
@@ -200,7 +200,7 @@ export function chatLabel(chat: TelegramChat): string {
     || chat.id;
 }
 
-export function toDeliveryView(delivery: ReportDelivery, data: StoreData): ReportDeliveryView {
+export function toDeliveryView(delivery: ReportDelivery, data: NotificationPersistenceData): ReportDeliveryView {
   const channel = data.notificationChannels.find((entry) => entry.id === delivery.channelId);
   const target = data.notificationTargets.find((entry) => entry.id === delivery.targetId);
   return {

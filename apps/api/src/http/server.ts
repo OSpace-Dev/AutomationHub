@@ -1,23 +1,25 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { ApiKeyVault, SecretVault } from "./crypto.js";
-import { ApiError } from "./errors.js";
-import { authenticateDevice, requireAdmin } from "./http/auth.js";
-import { routeAdminCore } from "./http/routes/admin-core.js";
-import { routeAdminModels } from "./http/routes/admin-models.js";
-import { routeAdminNotifications } from "./http/routes/admin-notifications.js";
-import { routeAdminReports } from "./http/routes/admin-reports.js";
-import { routeAdminTasks } from "./http/routes/admin-tasks.js";
-import { routeCollection } from "./http/routes/collection.js";
-import { routeDevices } from "./http/routes/devices.js";
-import { routeCore } from "./http/router.js";
-import { handleError, writeJson } from "./http/response.js";
-import type { HttpContext } from "./http/context.js";
-import { ModelProviderService, OpenAiCompatibleClient } from "./model-service.js";
-import { ReportDeliveryService } from "./notification-service.js";
-import { ReportGenerationService } from "./report-service.js";
-import { CollectionService, type AuthorizationExpiry } from "./service.js";
-import type { Store } from "./store.js";
-import { TelegramClient, type TelegramProxyRequest } from "./telegram-service.js";
+import { ApiKeyVault, SecretVault } from "../shared/crypto.js";
+import { ApiError } from "../shared/errors.js";
+import { authenticateDevice, requireAdmin } from "./auth.js";
+import { routeAdminCore } from "./routes/admin-core.js";
+import { routeAdminModels } from "./routes/admin-models.js";
+import { routeAdminNotifications } from "./routes/admin-notifications.js";
+import { routeAdminReports } from "./routes/admin-reports.js";
+import { routeAdminTasks } from "./routes/admin-tasks.js";
+import { routeCollection } from "./routes/collection.js";
+import { routeDevices } from "./routes/devices.js";
+import { routeCore } from "./router.js";
+import { handleError, writeJson } from "./response.js";
+import type { HttpContext } from "./context.js";
+import { ModelProviderService, OpenAiCompatibleClient } from "../application/model-provider-service.js";
+import { ReportDeliveryService } from "../application/report-delivery-service.js";
+import { ReportGenerationService } from "../application/report-generation-service.js";
+import { CollectionService, type AuthorizationExpiry } from "../application/collection-service.js";
+import type { Store } from "../application/ports/store.js";
+import { TelegramClient, type TelegramProxyRequest } from "../infrastructure/notifications/telegram-client.js";
+import { StoreBackedNotificationPersistenceAdapter } from "../infrastructure/persistence/store-backed-notification-persistence-adapter.js";
+import { StoreBackedReportPersistenceAdapter } from "../infrastructure/persistence/store-backed-report-persistence-adapter.js";
 
 export interface ServerOptions {
   store: Store;
@@ -41,8 +43,10 @@ export interface ApiServer extends Server {
 export function createApiServer(options: ServerOptions): ApiServer {
   const service = new CollectionService(options.store);
   const providers = new ModelProviderService(options.store, new ApiKeyVault(options.modelEncryptionKey), new OpenAiCompatibleClient(options.modelFetch ?? fetch));
+  const reportPersistence = new StoreBackedReportPersistenceAdapter(options.store);
+  const notificationPersistence = new StoreBackedNotificationPersistenceAdapter(options.store);
   const deliveries = new ReportDeliveryService(
-    options.store,
+    notificationPersistence,
     new SecretVault(options.modelEncryptionKey),
     new TelegramClient({
       requestFetch: options.telegramFetch ?? fetch,
@@ -50,7 +54,7 @@ export function createApiServer(options: ServerOptions): ApiServer {
     }),
     options.publicBaseUrl
   );
-  const reports = new ReportGenerationService(options.store, providers, {
+  const reports = new ReportGenerationService(reportPersistence, providers, {
     modelRequestMinIntervalMs: options.modelRequestMinIntervalMs,
     onCompletedReport: async (generationId) => {
       await deliveries.enqueueForCompletedReport(generationId);

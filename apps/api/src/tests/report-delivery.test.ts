@@ -3,10 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SecretVault } from "./crypto.js";
-import { ReportDeliveryService } from "./notification-service.js";
-import { FileStore } from "./store.js";
-import { TelegramClient } from "./telegram-service.js";
+import { SecretVault } from "../shared/crypto.js";
+import { ReportDeliveryService } from "../application/report-delivery-service.js";
+import { FileStore } from "../infrastructure/persistence/file-store.js";
+import { TelegramClient } from "../infrastructure/notifications/telegram-client.js";
+import { StoreBackedNotificationPersistenceAdapter } from "../infrastructure/persistence/store-backed-notification-persistence-adapter.js";
 
 test("ReportDeliveryService keeps delivery state independent, idempotent, and recoverable", async () => {
   const directory = await mkdtemp(join(tmpdir(), "automation-hub-telegram-"));
@@ -37,7 +38,7 @@ test("ReportDeliveryService keeps delivery state independent, idempotent, and re
       return { ok: true, status: 200, body: { ok: true, result: { message_id: sentMessages.length } } };
     }
   });
-  const deliveries = new ReportDeliveryService(store, new SecretVault("telegram-test-encryption-key"), telegram, "https://reports.example.test");
+  const deliveries = new ReportDeliveryService(new StoreBackedNotificationPersistenceAdapter(store), new SecretVault("telegram-test-encryption-key"), telegram, "https://reports.example.test");
 
   try {
     await store.initialize();
@@ -127,7 +128,7 @@ test("ReportDeliveryService keeps delivery state independent, idempotent, and re
         delivery.startedAt = "2026-08-18T00:04:00.000Z";
       }
     });
-    const recovered = new ReportDeliveryService(store, new SecretVault("telegram-test-encryption-key"), telegram, "https://reports.example.test");
+    const recovered = new ReportDeliveryService(new StoreBackedNotificationPersistenceAdapter(store), new SecretVault("telegram-test-encryption-key"), telegram, "https://reports.example.test");
     await recovered.start();
     await waitFor(async () => (await store.read()).reportDeliveries.some((entry) => entry.reportGenerationId === failedReport && entry.status === "sent"));
     recovered.stop();
@@ -156,7 +157,7 @@ test("ReportDeliveryService refuses to send a daily report without a public URL"
       return new Response(JSON.stringify({ ok: true, result: { message_id: sendCount } }), { status: 200 });
     }
   });
-  const deliveries = new ReportDeliveryService(store, new SecretVault("missing-public-url-key"), telegram);
+  const deliveries = new ReportDeliveryService(new StoreBackedNotificationPersistenceAdapter(store), new SecretVault("missing-public-url-key"), telegram);
 
   try {
     await store.initialize();
@@ -228,7 +229,7 @@ test("ReportDeliveryService validates, stores plainly, retains, disables, and cl
       };
     }
   });
-  const deliveries = new ReportDeliveryService(store, new SecretVault("telegram-proxy-encryption-key"), telegram);
+  const deliveries = new ReportDeliveryService(new StoreBackedNotificationPersistenceAdapter(store), new SecretVault("telegram-proxy-encryption-key"), telegram);
 
   try {
     await store.initialize();
@@ -331,7 +332,7 @@ test("ReportDeliveryService discovers unique Telegram chats and tests an unconfi
       return { ok: true, status: 200, body: { ok: true, result: { message_id: 1 } } };
     }
   });
-  const deliveries = new ReportDeliveryService(store, new SecretVault("chat-discovery-key"), telegram);
+  const deliveries = new ReportDeliveryService(new StoreBackedNotificationPersistenceAdapter(store), new SecretVault("chat-discovery-key"), telegram);
 
   try {
     await store.initialize();

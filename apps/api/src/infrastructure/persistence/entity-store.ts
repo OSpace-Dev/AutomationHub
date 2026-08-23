@@ -1,4 +1,4 @@
-import { EMPTY_STORE, type StoreData } from "./models.js";
+import { EMPTY_STORE, type StoreData } from "../../domain/models.js";
 
 export const STORE_COLLECTIONS = [
   "registrationCodes",

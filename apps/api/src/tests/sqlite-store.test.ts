@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SqliteStore } from "./sqlite-store.js";
+import { SqliteStore } from "../infrastructure/persistence/sqlite-store.js";
 
 test("SqliteStore persists data across restart and supports update/delete", async () => {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "automation-hub-sqlite-"));

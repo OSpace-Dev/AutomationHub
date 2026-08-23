@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { TelegramClient } from "./telegram-service.js";
+import { TelegramClient } from "../infrastructure/notifications/telegram-client.js";
 
 test("TelegramClient validates bots, sends JSON, splits Unicode text, and redacts failures", async () => {
   const requests: Array<{ url: string; body?: string }> = [];

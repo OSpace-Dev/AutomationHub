@@ -1,7 +1,7 @@
 import type { HttpContext } from "../context.js";
 import { optionalBoolean, readJson } from "../request.js";
 import { writeJson } from "../response.js";
-import { optionalString, requireObject, requireString } from "../../validation.js";
+import { optionalString, requireObject, requireString } from "../../shared/validation.js";
 
 export async function routeAdminModels(context: HttpContext): Promise<boolean> {
   const { request, response, url, providers, options } = context;

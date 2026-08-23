@@ -1,18 +1,14 @@
-import type { Device, StoreData } from "../models.js";
-import type { Store } from "../store.js";
-import { DeviceAuthService } from "./device-auth-service.js";
+import type { Device, StoreData } from "../domain/models.js";
+import type { CollectionWritePort } from "./ports/collection-write-port.js";
+import { requireActiveDevice } from "./device-auth-service.js";
 import { RuntimeLogService } from "./runtime-log-service.js";
 
 export class DeviceLivenessService {
-  private readonly deviceAuth: DeviceAuthService;
-
-  constructor(private readonly store: Store, private readonly runtimeLogs: RuntimeLogService) {
-    this.deviceAuth = new DeviceAuthService(store);
-  }
+  constructor(private readonly writes: CollectionWritePort, private readonly runtimeLogs: RuntimeLogService) {}
 
   async heartbeat(deviceId: string, input: { extensionVersion: string; queueDepth: number; taskId?: string }): Promise<Device & { taskCancelled?: boolean }> {
-    return this.store.update((data) => {
-      const device = this.deviceAuth.requireActiveDevice(data, deviceId);
+    return this.writes.update((data) => {
+      const device = requireActiveDevice(data, deviceId);
       device.extensionVersion = input.extensionVersion;
       device.queueDepth = input.queueDepth;
       const occurredAt = new Date().toISOString();

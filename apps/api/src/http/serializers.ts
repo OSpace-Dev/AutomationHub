@@ -1,4 +1,4 @@
-import type { ReportInsights } from "../models.js";
+import type { ReportInsights } from "../domain/models.js";
 
 export function serializeReportInsights(insights: ReportInsights) {
   const serializeProject = (project: ReportInsights["categories"][number]["projects"][number]) => ({

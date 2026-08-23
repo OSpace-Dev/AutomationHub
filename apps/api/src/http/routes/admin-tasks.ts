@@ -1,10 +1,10 @@
-import { invalidPayload } from "../../errors.js";
-import type { RuntimeLogLevel, ScheduleRecurrence, ScheduleStatus, TaskSchedule, TaskStatus, TaskType } from "../../models.js";
+import { invalidPayload } from "../../shared/errors.js";
+import type { RuntimeLogLevel, ScheduleRecurrence, ScheduleStatus, TaskSchedule, TaskStatus, TaskType } from "../../domain/models.js";
 import type { HttpContext } from "../context.js";
 import { pageMeta, readJson, readPage, readPageSize, requireHeader } from "../request.js";
 import { writeJson } from "../response.js";
 import { serializeDevice, serializeLog, serializeTask } from "./devices.js";
-import { requireObject, requireString } from "../../validation.js";
+import { requireObject, requireString } from "../../shared/validation.js";
 
 export async function routeAdminTasks(context: HttpContext): Promise<boolean> {
   const { request, response, url, service, options } = context;

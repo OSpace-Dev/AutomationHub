@@ -1,7 +1,7 @@
 import { requireAdmin, isAuthEnabled } from "./auth.js";
 import type { HttpContext } from "./context.js";
 import { serveAdmin, writeJson } from "./response.js";
-import type { ReportInsights } from "../models.js";
+import type { ReportInsights } from "../domain/models.js";
 import { serializeReportInsights } from "./serializers.js";
 
 export async function routeCore(context: HttpContext): Promise<boolean> {

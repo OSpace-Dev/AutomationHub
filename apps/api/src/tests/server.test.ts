@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { type AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { createApiServer } from "./server.js";
-import { FileStore } from "./store.js";
-import { parseAuthEnabled } from "./main/config.js";
+import { createApiServer } from "../http/server.js";
+import { FileStore } from "../infrastructure/persistence/file-store.js";
+import { parseAuthEnabled } from "../main/config.js";
 
 let baseUrl = "";
 let registrationCode = "test-registration-code";

@@ -1,6 +1,6 @@
-import { ApiError } from "../errors.js";
-import type { CollectionRun, CollectionTask, Device, ProjectSnapshot, ScheduleRecurrence, TaskSchedule, TaskStatus } from "../models.js";
-import type { CollectionQueryPort } from "../infrastructure/persistence/collection-query-port.js";
+import { ApiError } from "../shared/errors.js";
+import type { CollectionRun, CollectionTask, Device, ProjectSnapshot, ScheduleRecurrence, TaskSchedule, TaskStatus } from "../domain/models.js";
+import type { CollectionQueryPort } from "./ports/collection-query-port.js";
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;

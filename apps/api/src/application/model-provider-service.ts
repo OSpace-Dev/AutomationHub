@@ -1,7 +1,7 @@
-import { ApiKeyVault, createId } from "./crypto.js";
-import { ApiError, invalidPayload } from "./errors.js";
-import type { ModelProvider, ReportDefinition, StoreData } from "./models.js";
-import type { Store } from "./store.js";
+import { ApiKeyVault, createId } from "../shared/crypto.js";
+import { ApiError, invalidPayload } from "../shared/errors.js";
+import type { ModelProvider, ReportDefinition, StoreData } from "../domain/models.js";
+import type { Store } from "./ports/store.js";
 
 const MODEL_LIST_TIMEOUT_MS = 20_000;
 const REPORT_TIMEOUT_MS = 120_000;

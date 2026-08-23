@@ -1,16 +1,10 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { createId, hashSecret } from "./crypto.js";
-import { EMPTY_STORE, type StoreData } from "./models.js";
+import { createId, hashSecret } from "../../shared/crypto.js";
+import { EMPTY_STORE, type StoreData } from "../../domain/models.js";
+import type { Store } from "../../application/ports/store.js";
 
 const BOOTSTRAP_CODE_TTL_MS = 24 * 60 * 60 * 1000;
-
-export interface Store {
-  initialize(bootstrapCode?: string): Promise<void>;
-  read(): Promise<StoreData>;
-  update<T>(mutation: (data: StoreData) => T): Promise<T>;
-  close(): Promise<void>;
-}
 
 export class FileStore implements Store {
   private operation = Promise.resolve();

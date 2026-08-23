@@ -1,5 +1,5 @@
 import type { IncomingMessage } from "node:http";
-import { invalidPayload } from "../errors.js";
+import { invalidPayload } from "../shared/errors.js";
 
 export async function readJson(request: IncomingMessage): Promise<unknown> {
   let content = "";

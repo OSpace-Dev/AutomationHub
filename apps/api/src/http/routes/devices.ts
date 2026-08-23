@@ -1,10 +1,11 @@
-import { ApiError, invalidPayload } from "../../errors.js";
+import { ApiError, invalidPayload } from "../../shared/errors.js";
 import { isAuthEnabled } from "../auth.js";
 import type { HttpContext } from "../context.js";
+import type { CollectionService } from "../../application/collection-service.js";
 import { readJson } from "../request.js";
 import { writeJson } from "../response.js";
-import type { CollectionTask, RuntimeLogLevel } from "../../models.js";
-import { optionalString, requireObject, requireString } from "../../validation.js";
+import type { CollectionTask, RuntimeLogLevel } from "../../domain/models.js";
+import { optionalString, requireObject, requireString } from "../../shared/validation.js";
 
 export async function routeDevices(context: HttpContext): Promise<boolean> {
   const { request, response, url, service, reports, options, auth } = context;
@@ -100,7 +101,7 @@ export async function routeDevices(context: HttpContext): Promise<boolean> {
   return false;
 }
 
-export function serializeRegistration(result: Awaited<ReturnType<import("../../service.js").CollectionService["registerDevice"]>>) {
+export function serializeRegistration(result: Awaited<ReturnType<CollectionService["registerDevice"]>>) {
   return { device: serializeDevice(result.device), ...serializeTokens(result.tokens) };
 }
 

@@ -1,5 +1,5 @@
-import type { CollectionQueryPort, CollectionQuerySnapshot } from "./collection-query-port.js";
-import type { Store } from "../../store.js";
+import type { CollectionQueryPort, CollectionQuerySnapshot } from "../../application/ports/collection-query-port.js";
+import type { Store } from "../../application/ports/store.js";
 
 export class StoreBackedCollectionQueryAdapter implements CollectionQueryPort {
   constructor(private readonly store: Store) {}
@@ -11,7 +11,8 @@ export class StoreBackedCollectionQueryAdapter implements CollectionQueryPort {
       items: data.items,
       devices: data.devices,
       tasks: data.tasks,
-      schedules: data.schedules
+      schedules: data.schedules,
+      logs: data.logs
     };
   }
 }

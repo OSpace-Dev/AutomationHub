@@ -1,4 +1,4 @@
-import type { CollectionRun, ProjectSnapshot, ReportInsights, ReportProjectInsight, ReportTrendProject } from "../models.js";
+import type { CollectionRun, ProjectSnapshot, ReportInsights, ReportProjectInsight, ReportTrendProject } from "../domain/models.js";
 import { cleanSourceText, hasUsableProjectContent, normalizeComparableUrl, stripHtml } from "./report-source.js";
 
 const MAX_PROJECT_PURPOSE_CHARS = 45;

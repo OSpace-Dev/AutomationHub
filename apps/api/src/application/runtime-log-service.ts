@@ -1,7 +1,8 @@
-import { createId } from "../crypto.js";
-import type { RuntimeLog, RuntimeLogLevel, StoreData } from "../models.js";
-import type { Store } from "../store.js";
-import { DeviceAuthService } from "./device-auth-service.js";
+import { createId } from "../shared/crypto.js";
+import type { RuntimeLog, RuntimeLogLevel, StoreData } from "../domain/models.js";
+import type { CollectionQueryPort } from "./ports/collection-query-port.js";
+import type { CollectionWritePort } from "./ports/collection-write-port.js";
+import { requireActiveDevice } from "./device-auth-service.js";
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
@@ -15,21 +16,17 @@ export interface RuntimeLogPageResult<T = RuntimeLog> {
 }
 
 export class RuntimeLogService {
-  private readonly deviceAuth: DeviceAuthService;
-
-  constructor(private readonly store: Store) {
-    this.deviceAuth = new DeviceAuthService(store);
-  }
+  constructor(private readonly writes: CollectionWritePort, private readonly queries: CollectionQueryPort) {}
 
   async appendLog(input: { deviceId: string; taskId?: string; level: RuntimeLogLevel; event: string; message: string; metadata?: Record<string, string | number | boolean | null> }): Promise<RuntimeLog> {
-    return this.store.update((data) => {
-      this.deviceAuth.requireActiveDevice(data, input.deviceId);
+    return this.writes.update((data) => {
+      requireActiveDevice(data, input.deviceId);
       return structuredClone(this.appendLogToData(data, input));
     });
   }
 
   async listLogs(input: { deviceId?: string; level?: RuntimeLogLevel; limit?: number; page?: number; pageSize?: number }): Promise<RuntimeLogPageResult> {
-    const data = await this.store.read();
+    const data = await this.queries.readSnapshot();
     return paginate(data.logs
       .filter((log) => (!input.deviceId || log.deviceId === input.deviceId) && (!input.level || log.level === input.level))
       .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)), input.page, input.pageSize ?? input.limit);

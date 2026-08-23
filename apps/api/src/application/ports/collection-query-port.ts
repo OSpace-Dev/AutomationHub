@@ -1,4 +1,4 @@
-import type { CollectionRun, CollectionTask, Device, ProjectSnapshot, TaskSchedule } from "../../models.js";
+import type { CollectionRun, CollectionTask, Device, ProjectSnapshot, RuntimeLog, TaskSchedule } from "../../domain/models.js";
 
 export interface CollectionQuerySnapshot {
   readonly runs: readonly CollectionRun[];
@@ -6,6 +6,7 @@ export interface CollectionQuerySnapshot {
   readonly devices: readonly Device[];
   readonly tasks: readonly CollectionTask[];
   readonly schedules: readonly TaskSchedule[];
+  readonly logs: readonly RuntimeLog[];
 }
 
 export interface CollectionQueryPort {
