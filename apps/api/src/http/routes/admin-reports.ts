@@ -7,7 +7,20 @@ import { serializeReportInsights } from "../serializers.js";
 import { requireObject, requireString } from "../../shared/validation.js";
 
 export async function routeAdminReports(context: HttpContext): Promise<boolean> {
-  const { request, response, url, reports, deliveries, options } = context;
+  const { request, response, url, providers, reports, deliveries, options } = context;
+
+  if (request.method === "GET" && url.pathname === "/api/v1/admin/report-definition") {
+    const definition = await providers.getReportDefinition();
+    writeJson(response, 200, { status: "success", data: serializeReportDefinition(definition) }, options.corsOrigin);
+    return true;
+  }
+
+  if (request.method === "PUT" && url.pathname === "/api/v1/admin/report-definition") {
+    const body = requireObject(await readJson(request));
+    const definition = await providers.updateReportPrompt(requireString(body, "prompt_template"));
+    writeJson(response, 200, { status: "success", data: serializeReportDefinition(definition) }, options.corsOrigin);
+    return true;
+  }
 
   if (request.method === "GET" && url.pathname === "/api/v1/admin/reports") {
     const result = await reports.list({ date: url.searchParams.get("date") ?? undefined, status: url.searchParams.get("status") ? parseReportStatus(url.searchParams.get("status") as string) : undefined, trigger: url.searchParams.get("trigger") ? parseReportTrigger(url.searchParams.get("trigger") as string) : undefined, page: readPage(url), pageSize: readPageSize(url) });
@@ -56,6 +69,26 @@ export async function routeAdminReports(context: HttpContext): Promise<boolean> 
   }
 
   return false;
+}
+
+function serializeReportDefinition(definition: {
+  id: string;
+  type: string;
+  name: string;
+  sourceType: string;
+  promptTemplate: string;
+  enabled: boolean;
+  updatedAt: string;
+}) {
+  return {
+    id: definition.id,
+    type: definition.type,
+    name: definition.name,
+    source_type: definition.sourceType,
+    prompt_template: definition.promptTemplate,
+    enabled: definition.enabled,
+    updated_at: definition.updatedAt
+  };
 }
 
 function serializeReportDelivery(delivery: { id: string; reportGenerationId: string; channelId: string; channelName?: string; targetId: string; targetName?: string; chatId?: string; status: string; attemptCount: number; messageCount?: number; lastError?: string; createdAt: string; startedAt?: string; sentAt?: string; completedAt?: string }) {

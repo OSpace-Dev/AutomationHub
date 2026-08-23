@@ -25,6 +25,7 @@ const emit = defineEmits<{
     :title="editingTargetId ? '编辑推送目标' : '添加推送目标'"
     size="min(520px, 100%)"
     class="admin-drawer"
+    append-to-body
     :close-on-click-modal="!loading"
     :close-on-press-escape="!loading"
     @update:model-value="emit('update:open', $event)"

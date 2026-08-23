@@ -19,6 +19,8 @@
   --el-text-color-placeholder: #8da1b7;
   --el-border-color: #dce7f6;
   --el-border-color-light: #e7eef7;
+  --el-component-size: 34px;
+  --el-component-size-small: 32px;
 }
 
 .el-popper.is-light {
@@ -34,4 +36,43 @@
 .el-select-dropdown__item.is-selected {
   color: var(--el-color-primary);
   font-weight: 700;
+}
+
+.el-input__wrapper,
+.el-select__wrapper,
+.el-date-editor.el-input,
+.el-date-editor.el-input__wrapper {
+  min-height: 34px;
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px #cbd9e8 inset;
+}
+
+.el-input__wrapper:hover,
+.el-select__wrapper:hover,
+.el-date-editor.el-input:hover,
+.el-date-editor.el-input__wrapper:hover {
+  box-shadow: 0 0 0 1px #9abbe3 inset;
+}
+
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused,
+.el-date-editor.el-input.is-active,
+.el-date-editor.el-input__wrapper.is-active {
+  box-shadow:
+    0 0 0 1px var(--el-color-primary) inset,
+    0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.el-date-editor.el-input,
+.el-date-editor.el-input__wrapper {
+  width: 100%;
+}
+
+.el-picker-panel,
+.el-select-dropdown {
+  border-radius: 10px;
+}
+
+.el-picker-panel__content {
+  font-size: 12px;
 }

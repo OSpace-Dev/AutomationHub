@@ -33,7 +33,13 @@ const {
       <div class="module-filter-row">
         <label class="module-date-filter"
           ><span><CalendarDays :size="15" aria-hidden="true" />批次日期</span
-          ><input v-model="runsDate" type="date" :disabled="loading" @change="changeDate('runs')"
+          ><el-date-picker
+            v-model="runsDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="选择日期"
+            :disabled="loading"
+            @change="changeDate('runs')"
         /></label>
       </div>
       <div v-if="loading" class="loading-state compact" aria-live="polite">

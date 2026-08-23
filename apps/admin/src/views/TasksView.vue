@@ -71,30 +71,18 @@ function activateRecord(event: KeyboardEvent, record: Task | TaskSchedule) {
   <div class="task-workspace">
     <section class="data-section task-center-card" aria-label="任务列表">
       <header class="task-center-toolbar">
-        <div class="task-list-tabs" role="tablist" aria-label="任务中心列表">
-          <button
-            id="tasks-tab"
-            type="button"
-            role="tab"
-            :aria-selected="activeList === 'tasks'"
-            aria-controls="tasks-panel"
-            :class="{ active: activeList === 'tasks' }"
-            @click="activeList = 'tasks'"
-          >
-            已下发任务 <span>{{ pagination.tasks.total }}</span>
-          </button>
-          <button
-            id="schedules-tab"
-            type="button"
-            role="tab"
-            :aria-selected="activeList === 'schedules'"
-            aria-controls="schedules-panel"
-            :class="{ active: activeList === 'schedules' }"
-            @click="activeList = 'schedules'"
-          >
-            预约计划 <span>{{ pagination.schedules.total }}</span>
-          </button>
-        </div>
+        <el-tabs v-model="activeList" class="task-list-tabs" aria-label="任务中心列表">
+          <el-tab-pane name="tasks">
+            <template #label
+              >已下发任务 <span>{{ pagination.tasks.total }}</span></template
+            >
+          </el-tab-pane>
+          <el-tab-pane name="schedules">
+            <template #label
+              >预约计划 <span>{{ pagination.schedules.total }}</span></template
+            >
+          </el-tab-pane>
+        </el-tabs>
         <el-button type="primary" @click="createDrawerOpen = true"
           ><Plus :size="16" aria-hidden="true" />下发任务</el-button
         >
@@ -103,53 +91,76 @@ function activateRecord(event: KeyboardEvent, record: Task | TaskSchedule) {
       <section class="compact-filter-bar" aria-label="任务筛选">
         <div v-if="activeList === 'tasks'" class="filter-fields">
           <label
-            ><span>任务日期</span><input v-model="tasksDate" type="date" @change="applyTaskFilters('tasks')"
+            ><span>任务日期</span
+            ><el-date-picker
+              v-model="tasksDate"
+              type="date"
+              value-format="YYYY-MM-DD"
+              placeholder="选择日期"
+              clearable
+              @change="applyTaskFilters('tasks')"
           /></label>
           <label
             ><span>状态</span
-            ><select v-model="taskStatus" @change="applyTaskFilters('tasks')">
-              <option value="">全部状态</option>
-              <option value="pending">待处理</option>
-              <option value="running">进行中</option>
-              <option value="paused">已暂停</option>
-              <option value="completed">完成</option>
-              <option value="failed">失败</option>
-              <option value="cancelled">已取消</option>
-            </select></label
-          >
+            ><el-select v-model="taskStatus" placeholder="全部状态" clearable @change="applyTaskFilters('tasks')">
+              <el-option label="待处理" value="pending" /><el-option label="进行中" value="running" /><el-option
+                label="已暂停"
+                value="paused"
+              /><el-option label="完成" value="completed" /><el-option label="失败" value="failed" /><el-option
+                label="已取消"
+                value="cancelled"
+              /> </el-select
+          ></label>
           <label
             ><span>设备</span
-            ><select v-model="taskDeviceFilter" @change="applyTaskFilters('tasks')">
-              <option value="">全部设备</option>
-              <option v-for="device in taskDevices" :key="device.id" :value="device.id">{{ device.name }}</option>
-            </select></label
-          >
+            ><el-select v-model="taskDeviceFilter" placeholder="全部设备" clearable @change="applyTaskFilters('tasks')">
+              <el-option
+                v-for="device in taskDevices"
+                :key="device.id"
+                :label="device.name"
+                :value="device.id"
+              /> </el-select
+          ></label>
         </div>
         <div v-else class="filter-fields">
           <label
             ><span>状态</span
-            ><select v-model="scheduleStatus" @change="applyTaskFilters('schedules')">
-              <option value="">全部状态</option>
-              <option value="active">有效</option>
-              <option value="completed">完成</option>
-              <option value="cancelled">已取消</option>
-            </select></label
-          >
+            ><el-select
+              v-model="scheduleStatus"
+              placeholder="全部状态"
+              clearable
+              @change="applyTaskFilters('schedules')"
+            >
+              <el-option label="有效" value="active" /><el-option label="完成" value="completed" /><el-option
+                label="已取消"
+                value="cancelled"
+              /> </el-select
+          ></label>
           <label
             ><span>设备</span
-            ><select v-model="scheduleDeviceFilter" @change="applyTaskFilters('schedules')">
-              <option value="">全部设备</option>
-              <option v-for="device in taskDevices" :key="device.id" :value="device.id">{{ device.name }}</option>
-            </select></label
-          >
+            ><el-select
+              v-model="scheduleDeviceFilter"
+              placeholder="全部设备"
+              clearable
+              @change="applyTaskFilters('schedules')"
+            >
+              <el-option
+                v-for="device in taskDevices"
+                :key="device.id"
+                :label="device.name"
+                :value="device.id"
+              /> </el-select
+          ></label>
           <label
             ><span>频率</span
-            ><select v-model="scheduleRecurrence" @change="applyTaskFilters('schedules')">
-              <option value="">全部频率</option>
-              <option value="once">单次</option>
-              <option value="daily">每日</option>
-            </select></label
-          >
+            ><el-select
+              v-model="scheduleRecurrence"
+              placeholder="全部频率"
+              clearable
+              @change="applyTaskFilters('schedules')"
+            >
+              <el-option label="单次" value="once" /><el-option label="每日" value="daily" /> </el-select
+          ></label>
         </div>
         <button
           class="text-button filter-reset"
@@ -166,7 +177,7 @@ function activateRecord(event: KeyboardEvent, record: Task | TaskSchedule) {
         id="tasks-panel"
         class="task-list-panel"
         role="tabpanel"
-        aria-labelledby="tasks-tab"
+        aria-label="已下发任务列表"
       >
         <div v-if="loading" class="loading-state" aria-live="polite">
           <RefreshCw :size="20" class="spinning" aria-hidden="true" /><span>正在读取任务</span>
@@ -226,7 +237,7 @@ function activateRecord(event: KeyboardEvent, record: Task | TaskSchedule) {
           @change="changePage('tasks', $event)"
         />
       </div>
-      <div v-else id="schedules-panel" class="task-list-panel" role="tabpanel" aria-labelledby="schedules-tab">
+      <div v-else id="schedules-panel" class="task-list-panel" role="tabpanel" aria-label="预约计划列表">
         <div v-if="loading" class="loading-state" aria-live="polite">
           <RefreshCw :size="20" class="spinning" aria-hidden="true" /><span>正在读取预约计划</span>
         </div>
@@ -292,6 +303,7 @@ function activateRecord(event: KeyboardEvent, record: Task | TaskSchedule) {
       title="下发采集任务"
       size="min(560px, 100%)"
       class="admin-drawer"
+      append-to-body
       :close-on-click-modal="!creatingTask"
       :close-on-press-escape="!creatingTask"
     >
@@ -307,19 +319,18 @@ function activateRecord(event: KeyboardEvent, record: Task | TaskSchedule) {
           ><button type="button" :class="{ active: taskMode === 'daily' }" @click="taskMode = 'daily'">每日</button>
         </div>
         <label
-          >目标设备<select v-model="taskDeviceId">
-            <option value="" disabled>选择有效设备</option>
-            <option
+          >目标设备<el-select v-model="taskDeviceId" placeholder="选择有效设备" filterable>
+            <el-option
               v-for="device in taskDevices.filter((entry) => entry.status === 'active')"
               :key="device.id"
+              :label="device.name"
               :value="device.id"
-            >
-              {{ device.name }}
-            </option>
-          </select></label
-        ><label v-if="taskMode === 'immediate'">采集日期<input v-model="taskBusinessDate" type="date" /></label
-        ><label v-else>首次执行<input v-model="taskStartAt" type="datetime-local" /></label
-        ><label v-if="taskMode !== 'immediate'">时区<input v-model="taskTimeZone" type="text" /></label>
+            /> </el-select></label
+        ><label v-if="taskMode === 'immediate'"
+          >采集日期<el-date-picker v-model="taskBusinessDate" type="date" value-format="YYYY-MM-DD" /></label
+        ><label v-else
+          >首次执行<el-date-picker v-model="taskStartAt" type="datetime" value-format="YYYY-MM-DDTHH:mm" /></label
+        ><label v-if="taskMode !== 'immediate'">时区<el-input v-model="taskTimeZone" /></label>
       </div>
       <template #footer
         ><div class="drawer-footer">
@@ -339,6 +350,7 @@ function activateRecord(event: KeyboardEvent, record: Task | TaskSchedule) {
       :title="selectedIsTask ? '任务详情' : '计划详情'"
       size="min(520px, 100%)"
       class="admin-drawer detail-drawer"
+      append-to-body
     >
       <div v-if="selectedRecord" class="detail-stack">
         <div class="detail-hero">

@@ -124,6 +124,15 @@ export interface ModelDescriptor {
   id: string;
   name?: string;
 }
+export interface ReportDefinition {
+  id: string;
+  type: string;
+  name: string;
+  source_type: string;
+  prompt_template: string;
+  enabled: boolean;
+  updated_at: string;
+}
 export type ReportStatus = "pending" | "running" | "completed" | "failed";
 export interface ReportProjectInsight {
   project_url: string;

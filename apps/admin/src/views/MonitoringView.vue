@@ -49,12 +49,11 @@ function activateLog(event: KeyboardEvent, log: RuntimeLog) {
           placeholder="搜索事件、设备或消息" /></label
       ><label
         ><span class="sr-only">日志级别</span
-        ><select v-model="level">
-          <option value="">全部级别</option>
-          <option value="info">信息</option>
-          <option value="warn">警告</option>
-          <option value="error">错误</option>
-        </select></label
+        ><el-select v-model="level" placeholder="全部级别" clearable>
+          <el-option label="信息" value="info" /><el-option label="警告" value="warn" /><el-option
+            label="错误"
+            value="error"
+          /> </el-select></label
       ><button class="text-button filter-reset" type="button" :disabled="!keyword && !level" @click="resetFilters">
         <RotateCcw :size="13" />重置
       </button>
@@ -122,6 +121,7 @@ function activateLog(event: KeyboardEvent, log: RuntimeLog) {
       title="运行日志详情"
       size="min(560px, 100%)"
       class="admin-drawer detail-drawer"
+      append-to-body
       ><div v-if="selectedLog" class="detail-stack">
         <div class="detail-hero">
           <span class="drawer-icon"><Wifi :size="18" /></span>

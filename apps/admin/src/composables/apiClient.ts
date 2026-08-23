@@ -4,9 +4,7 @@ import type { ApiResponse, PageMeta } from "../admin-models";
 const defaultApiOrigin = import.meta.env.DEV ? "http://localhost:3000" : window.location.origin;
 const storedApiOrigin = sessionStorage.getItem("automationhub.apiOrigin");
 
-export const apiOrigin = ref(
-  storedApiOrigin?.trim() || defaultApiOrigin
-);
+export const apiOrigin = ref(storedApiOrigin?.trim() || defaultApiOrigin);
 
 export const adminApiKey = ref(sessionStorage.getItem("automationhub.adminApiKey") ?? "");
 

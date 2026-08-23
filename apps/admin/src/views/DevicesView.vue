@@ -108,6 +108,7 @@ const authorizationDrawerOpen = ref(false);
       title="插件授权管理"
       size="min(620px, 100%)"
       class="admin-drawer authorization-drawer"
+      append-to-body
     >
       <div class="authorization-card drawer-card">
         <div class="drawer-intro">
@@ -116,12 +117,11 @@ const authorizationDrawerOpen = ref(false);
         </div>
         <div class="authorization-create-row">
           <label
-            >有效期<select v-model="authorizationExpiresIn">
-              <option value="24h">24 小时</option>
-              <option value="7d">7 天</option>
-              <option value="30d">30 天</option>
-              <option value="never">永久有效</option>
-            </select></label
+            >有效期<el-select v-model="authorizationExpiresIn">
+              <el-option label="24 小时" value="24h" /><el-option label="7 天" value="7d" /><el-option
+                label="30 天"
+                value="30d"
+              /><el-option label="永久有效" value="never" /> </el-select></label
           ><button class="primary-button" type="button" :disabled="creatingAuthorization" @click="createAuthorization">
             <RefreshCw v-if="creatingAuthorization" :size="16" class="spinning" aria-hidden="true" /><Plus
               v-else

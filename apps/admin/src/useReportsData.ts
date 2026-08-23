@@ -1,5 +1,13 @@
 import { ref } from "vue";
-import type { ModelProvider, PageMeta, ReportDelivery, ReportGeneration, ReportStatus, Run } from "./admin-models";
+import type {
+  ModelProvider,
+  PageMeta,
+  ReportDefinition,
+  ReportDelivery,
+  ReportGeneration,
+  ReportStatus,
+  Run
+} from "./admin-models";
 import { apiFetch } from "./composables/apiClient";
 
 const today = formatLocalDate(new Date());
@@ -18,6 +26,11 @@ const reportActionKind = ref<"create" | "regenerate" | "send" | "retry-delivery"
 const reportError = ref("");
 const reportNotice = ref("");
 const reportDeliveries = ref<ReportDelivery[]>([]);
+const reportDefinition = ref<ReportDefinition | null>(null);
+const reportDefinitionLoading = ref(false);
+const reportDefinitionSaving = ref(false);
+const reportDefinitionError = ref("");
+const reportDefinitionNotice = ref("");
 const reportPagination = ref<PageMeta>({ total: 0, page: 1, page_size: 20, total_pages: 1 });
 let reportRequestSequence = 0;
 let reportListRequestSequence = 0;
@@ -33,6 +46,11 @@ export function useReportsData() {
     defaultProviderConfigured,
     selectedReport,
     reportDeliveries,
+    reportDefinition,
+    reportDefinitionLoading,
+    reportDefinitionSaving,
+    reportDefinitionError,
+    reportDefinitionNotice,
     reportLoading,
     reportDetailLoading,
     reportActionLoading,
@@ -42,6 +60,8 @@ export function useReportsData() {
     reportPagination,
     refreshReports,
     refreshReportRuns,
+    refreshReportDefinition,
+    updateReportPrompt,
     applyReportFilters,
     resetReportFilters,
     selectReport,
@@ -101,6 +121,40 @@ async function refreshReportRuns() {
   } catch (error) {
     reportRuns.value = [];
     reportError.value = error instanceof Error ? error.message : "采集批次读取失败。";
+  }
+}
+
+async function refreshReportDefinition() {
+  reportDefinitionLoading.value = true;
+  reportDefinitionError.value = "";
+  try {
+    const response = await apiFetch<ReportDefinition>("/api/v1/admin/report-definition");
+    reportDefinition.value = response.data;
+  } catch (error) {
+    reportDefinition.value = null;
+    reportDefinitionError.value = error instanceof Error ? error.message : "提示词读取失败。";
+  } finally {
+    reportDefinitionLoading.value = false;
+  }
+}
+
+async function updateReportPrompt(promptTemplate: string) {
+  reportDefinitionSaving.value = true;
+  reportDefinitionError.value = "";
+  reportDefinitionNotice.value = "";
+  try {
+    const response = await apiFetch<ReportDefinition>("/api/v1/admin/report-definition", {
+      method: "PUT",
+      body: JSON.stringify({ prompt_template: promptTemplate })
+    });
+    reportDefinition.value = response.data;
+    reportDefinitionNotice.value = "日报提示词已保存，后续生成任务将使用新内容。";
+    return true;
+  } catch (error) {
+    reportDefinitionError.value = error instanceof Error ? error.message : "提示词保存失败。";
+    return false;
+  } finally {
+    reportDefinitionSaving.value = false;
   }
 }
 

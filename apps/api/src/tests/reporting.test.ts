@@ -18,6 +18,7 @@ let deviceId = "";
 let accessToken = "";
 let runId = "";
 let expectedModelUrl = "";
+const observedSystemPrompts: string[] = [];
 let chatResponseMode: "success" | "invalid-json" | "http-504-once" | "incomplete-once" | "incomplete-always" | "partial-fields-first" | "partial-fields-second" | "overlong-analysis" = "success";
 let modelListResponseMode: "success" | "key-in-error" = "success";
 
@@ -36,6 +37,7 @@ const modelFetch: typeof fetch = async (input, init) => {
     assert.equal(body.model, "daily-model");
     assert.equal(body.stream, true);
     assert.equal(body.max_tokens, 2_400);
+    observedSystemPrompts.push(String(body.messages[0]?.content ?? ""));
     assert.match(body.messages.at(-1).content, /Demo Project/);
     if (chatResponseMode === "invalid-json") return new Response("not-json", { status: 200, headers: { "content-type": "application/json" } });
     if (chatResponseMode === "http-504-once") {
@@ -315,6 +317,25 @@ test("configures an encrypted model provider without returning its key", async (
   assert.equal(created.body.data.api_key_hint, "••••-key");
   assert.equal("encrypted_api_key" in created.body.data, false);
 
+  const initialDefinition = await request("/api/v1/admin/report-definition");
+  assert.equal(initialDefinition.response.status, 200);
+  assert.equal(initialDefinition.body.data.source_type, "github_trending");
+  assert.equal(JSON.stringify(initialDefinition.body).includes("sk-test-key"), false);
+
+  const updatedDefinition = await request("/api/v1/admin/report-definition", {
+    method: "PUT",
+    body: JSON.stringify({ prompt_template: "请重点说明项目适用场景，并使用简洁中文。" })
+  });
+  assert.equal(updatedDefinition.response.status, 200);
+  assert.equal(updatedDefinition.body.data.prompt_template, "请重点说明项目适用场景，并使用简洁中文。");
+
+  const blankDefinition = await request("/api/v1/admin/report-definition", {
+    method: "PUT",
+    body: JSON.stringify({ prompt_template: "   " })
+  });
+  assert.equal(blankDefinition.response.status, 400);
+  assert.equal(blankDefinition.body.code, "invalid_payload");
+
   const listed = await request("/api/v1/admin/model-providers");
   assert.equal(listed.body.data[0].api_key_hint, "••••-key");
   assert.equal(JSON.stringify(listed.body), JSON.stringify(listed.body).replace("sk-test-key", "redacted"));
@@ -351,6 +372,7 @@ test("configures an encrypted model provider without returning its key", async (
 });
 
 test("automatically generates a report after task completion and supports manual retry", async () => {
+  observedSystemPrompts.length = 0;
   const run = await request("/api/v1/collection-runs", {
     method: "POST",
     headers: { "x-device-id": deviceId, "idempotency-key": "report-run-1" },
@@ -424,6 +446,7 @@ test("automatically generates a report after task completion and supports manual
   assert.equal(completed.response.status, 200);
 
   const automatic = await waitForReport((entry) => entry.trigger === "automatic" && entry.status === "completed");
+  assert.ok(observedSystemPrompts.includes("请重点说明项目适用场景，并使用简洁中文。"));
   assert.match(automatic.content, /今天共收录/);
   assert.equal(automatic.insights.metrics.project_count, 1);
   assert.equal(automatic.insights.metrics.total_stars, 100);

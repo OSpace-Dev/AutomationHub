@@ -43,6 +43,7 @@ async function regenerateReport() {
     :title="selectedReport ? selectedReport.business_date + ' 日报' : '日报详情'"
     size="min(860px, 100%)"
     class="admin-drawer report-detail-drawer"
+    append-to-body
     @update:model-value="emit('update:modelValue', $event)"
   >
     <div v-if="reportDetailLoading" class="loading-state" aria-live="polite">
@@ -66,7 +67,10 @@ async function regenerateReport() {
         </div>
         <div v-else class="report-public-link is-unavailable">
           <Link2 :size="16" aria-hidden="true" />
-          <div><strong>公开链接暂不可用</strong><span>本地生成和阅读不受影响；分享或 Telegram 推送时再配置 PUBLIC_BASE_URL。</span></div>
+          <div>
+            <strong>公开链接暂不可用</strong
+            ><span>本地生成和阅读不受影响；分享或 Telegram 推送时再配置 PUBLIC_BASE_URL。</span>
+          </div>
         </div>
         <div class="report-command-actions">
           <div v-if="selectedReport.public_url" class="report-share-actions" aria-label="公开链接操作">

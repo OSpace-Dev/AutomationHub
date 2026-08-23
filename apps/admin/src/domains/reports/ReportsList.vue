@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { FileText, Plus, RefreshCw, RotateCcw } from "lucide-vue-next";
+import { FileText, Plus, RefreshCw, RotateCcw, Settings2 } from "lucide-vue-next";
 import PaginationControl from "../../components/PaginationControl.vue";
 import { useReportsData } from "../../useReportsData";
 
-const emit = defineEmits<{ create: []; openDetail: []; changePage: [] }>();
+const emit = defineEmits<{ create: []; openDetail: []; openPromptSettings: []; changePage: [] }>();
 const {
   reportsDate,
   reportsStatus,
@@ -51,31 +51,38 @@ async function changePage(page: number) {
       </div>
       <div class="section-actions">
         <span class="count-label">共 {{ reportPagination.total }} 份</span
+        ><el-button @click="emit('openPromptSettings')"><Settings2 :size="16" />提示词设置</el-button
         ><el-button type="primary" @click="emit('create')"><Plus :size="16" />生成日报</el-button>
       </div>
     </header>
     <section class="compact-filter-bar report-compact-filter" aria-label="日报筛选">
       <div class="filter-fields">
-        <label><span>业务日期</span><input v-model="reportsDate" type="date" @change="filterReports" /></label>
+        <label
+          ><span>业务日期</span
+          ><el-date-picker
+            v-model="reportsDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="选择日期"
+            clearable
+            @change="filterReports"
+        /></label>
         <label
           ><span>状态</span
-          ><select v-model="reportsStatus" @change="filterReports">
-            <option value="">全部状态</option>
-            <option value="pending">待生成</option>
-            <option value="running">生成中</option>
-            <option value="completed">已完成</option>
-            <option value="failed">失败</option>
-          </select></label
-        >
+          ><el-select v-model="reportsStatus" placeholder="全部状态" clearable @change="filterReports">
+            <el-option label="待生成" value="pending" /><el-option label="生成中" value="running" /><el-option
+              label="已完成"
+              value="completed"
+            /><el-option label="失败" value="failed" /> </el-select
+        ></label>
         <label
           ><span>生成方式</span
-          ><select v-model="reportsTrigger" @change="filterReports">
-            <option value="">全部方式</option>
-            <option value="automatic">自动生成</option>
-            <option value="manual">手动生成</option>
-            <option value="retry">重新生成</option>
-          </select></label
-        >
+          ><el-select v-model="reportsTrigger" placeholder="全部方式" clearable @change="filterReports">
+            <el-option label="自动生成" value="automatic" /><el-option label="手动生成" value="manual" /><el-option
+              label="重新生成"
+              value="retry"
+            /> </el-select
+        ></label>
       </div>
       <button class="text-button filter-reset" type="button" :disabled="!hasReportFilters" @click="clearReportFilters">
         <RotateCcw :size="13" aria-hidden="true" />重置

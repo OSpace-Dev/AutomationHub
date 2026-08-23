@@ -6,6 +6,7 @@ import type { Store } from "./ports/store.js";
 const MODEL_LIST_TIMEOUT_MS = 20_000;
 const REPORT_TIMEOUT_MS = 120_000;
 const REPORT_MAX_OUTPUT_TOKENS = 2_400;
+const REPORT_PROMPT_MAX_LENGTH = 12_000;
 const DEFAULT_REPORT_PROMPT = "请根据给定的 GitHub Trending 项目资料逐项目分析用途和值得关注原因。不要编造输入中没有的事实。";
 
 export interface ModelProviderInput {
@@ -24,6 +25,16 @@ export interface ModelProviderView extends Omit<ModelProvider, "encryptedApiKey"
 export interface ModelDescriptor {
   id: string;
   name?: string;
+}
+
+export interface ReportDefinitionView {
+  id: string;
+  type: string;
+  name: string;
+  sourceType: ReportDefinition["sourceType"];
+  promptTemplate: string;
+  enabled: boolean;
+  updatedAt: string;
 }
 
 export function normalizeModelBaseUrl(value: string): string {
@@ -246,6 +257,28 @@ export class ModelProviderService {
     return provider && definition ? { provider, definition } : null;
   }
 
+  async getReportDefinition(): Promise<ReportDefinitionView> {
+    const data = await this.store.read();
+    const definition = data.reportDefinitions.find((entry) => entry.sourceType === "github_trending");
+    if (!definition) throw new ApiError(404, "report_definition_not_found", "Report definition was not found");
+    return toReportDefinitionView(definition);
+  }
+
+  async updateReportPrompt(promptTemplate: string): Promise<ReportDefinitionView> {
+    const prompt = promptTemplate.trim();
+    if (!prompt) throw invalidPayload("prompt_template must be a non-empty string");
+    if (prompt.length > REPORT_PROMPT_MAX_LENGTH) {
+      throw invalidPayload(`prompt_template must be at most ${REPORT_PROMPT_MAX_LENGTH} characters`);
+    }
+    return this.store.update((data) => {
+      const definition = data.reportDefinitions.find((entry) => entry.sourceType === "github_trending");
+      if (!definition) throw new ApiError(404, "report_definition_not_found", "Report definition was not found");
+      definition.promptTemplate = prompt;
+      definition.updatedAt = new Date().toISOString();
+      return toReportDefinitionView(definition);
+    });
+  }
+
   decryptApiKey(provider: ModelProvider): string {
     return this.vault.decrypt(provider.encryptedApiKey);
   }
@@ -285,6 +318,18 @@ export class ModelProviderService {
 function toProviderView(provider: ModelProvider): ModelProviderView {
   const { encryptedApiKey: _encryptedApiKey, ...view } = structuredClone(provider);
   return { ...view, apiKeyConfigured: Boolean(provider.encryptedApiKey), apiKeyHint: provider.apiKeyHint };
+}
+
+function toReportDefinitionView(definition: ReportDefinition): ReportDefinitionView {
+  return {
+    id: definition.id,
+    type: definition.type,
+    name: definition.name,
+    sourceType: definition.sourceType,
+    promptTemplate: definition.promptTemplate,
+    enabled: definition.enabled,
+    updatedAt: definition.updatedAt
+  };
 }
 
 function requiredName(value: string | undefined, field: string): string {
