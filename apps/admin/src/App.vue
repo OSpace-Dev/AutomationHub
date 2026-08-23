@@ -91,10 +91,12 @@ onUnmounted(() => {
         v-if="data.showConnectionSettings"
         :api-origin="data.apiOrigin"
         :api-key="data.adminApiKey"
+        :error="data.errorMessage || data.loginError"
         :loading="data.loading"
         @update:api-origin="data.apiOrigin = $event"
         @update:api-key="data.adminApiKey = $event"
         @connect="data.connect(activeTab)"
+        @close="data.showConnectionSettings = false"
       />
       <GlobalAlert v-if="data.errorMessage" :message="data.errorMessage" @close="data.errorMessage = ''" />
       <div class="view-host"><RouterView /></div>

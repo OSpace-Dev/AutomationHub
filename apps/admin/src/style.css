@@ -127,6 +127,20 @@ button:disabled {
   display: grid;
   gap: 17px;
 }
+.connection-modal {
+  position: relative;
+  width: min(430px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+}
+.connection-modal > .auth-card {
+  width: 100%;
+}
+.connection-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+}
 .auth-field {
   gap: 7px;
 }
@@ -151,7 +165,9 @@ button:disabled {
   box-shadow: 0 0 0 1px #9abbe3 inset;
 }
 .auth-input .el-input__wrapper.is-focus {
-  box-shadow: 0 0 0 1px var(--brand) inset, 0 0 0 3px rgba(37, 99, 235, 0.12);
+  box-shadow:
+    0 0 0 1px var(--brand) inset,
+    0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 .auth-submit {
   width: 100%;
@@ -357,39 +373,6 @@ h2 {
   color: var(--brand-dark);
 }
 
-.connection-band {
-  display: grid;
-  grid-template-columns: minmax(220px, 0.8fr) minmax(280px, 1.2fr) auto;
-  gap: 14px;
-  align-items: end;
-  flex: 0 0 auto;
-  margin: 18px 24px 0;
-  border: 1px solid rgba(255, 255, 255, 0.85);
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.8);
-  padding: 18px;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(12px);
-}
-.connection-heading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 38px;
-  color: var(--brand);
-}
-.connection-heading div {
-  display: grid;
-  gap: 3px;
-}
-.connection-heading strong {
-  color: var(--text);
-  font-size: 13px;
-}
-.connection-heading span {
-  color: var(--muted);
-  font-size: 10px;
-}
 label {
   display: grid;
   gap: 6px;
@@ -2950,11 +2933,6 @@ td small {
   h1 {
     font-size: 16px;
   }
-  .connection-band {
-    grid-template-columns: 1fr;
-    margin: 14px 14px 0;
-    padding: 14px;
-  }
   .alert {
     margin: 14px 14px 0;
   }
@@ -3178,6 +3156,13 @@ td small {
   }
   .auth-card {
     padding: 30px 22px 26px;
+  }
+  .connection-modal {
+    width: calc(100vw - 24px);
+  }
+  .connection-modal-close {
+    top: 14px;
+    right: 14px;
   }
   .auth-heading {
     margin-top: 34px;
