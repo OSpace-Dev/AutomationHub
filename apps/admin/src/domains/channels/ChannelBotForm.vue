@@ -32,9 +32,12 @@ const emit = defineEmits<{
       <span>保存时会调用 Telegram 验证凭据。</span>
     </div>
     <div class="channel-form-grid">
-      <label>渠道名称<input v-model="form.name" type="text" placeholder="例如：运营日报 Bot" required /></label>
-      <label>
-        Bot Token
+      <label class="channel-form-field">
+        <span>渠道名称</span>
+        <input v-model="form.name" type="text" placeholder="例如：运营日报 Bot" required />
+      </label>
+      <label class="channel-form-field">
+        <span>Bot Token</span>
         <div class="secret-input">
           <KeyRound :size="16" />
           <input
