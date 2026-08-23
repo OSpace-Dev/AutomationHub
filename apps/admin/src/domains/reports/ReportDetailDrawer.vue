@@ -66,7 +66,7 @@ async function regenerateReport() {
         </div>
         <div v-else class="report-public-link is-unavailable">
           <Link2 :size="16" aria-hidden="true" />
-          <div><strong>公开链接未配置</strong><span>请检查服务端 PUBLIC_BASE_URL。</span></div>
+          <div><strong>公开链接暂不可用</strong><span>本地生成和阅读不受影响；分享或 Telegram 推送时再配置 PUBLIC_BASE_URL。</span></div>
         </div>
         <div class="report-command-actions">
           <div v-if="selectedReport.public_url" class="report-share-actions" aria-label="公开链接操作">

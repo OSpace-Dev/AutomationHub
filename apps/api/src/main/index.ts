@@ -9,6 +9,7 @@ const application = await bootstrap({
   store,
   adminApiKey: config.adminApiKey,
   authEnabled: config.authEnabled,
+  modelSandboxEnabled: config.modelSandboxEnabled,
   corsOrigin: config.corsOrigin,
   adminDistPath: config.adminDistPath,
   modelEncryptionKey: config.modelEncryptionKey,

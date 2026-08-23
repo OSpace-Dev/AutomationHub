@@ -6,7 +6,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { createApiServer } from "../http/server.js";
 import { FileStore } from "../infrastructure/persistence/file-store.js";
-import { parseAuthEnabled } from "../main/config.js";
+import { parseAuthEnabled, resolveModelEncryptionKey } from "../main/config.js";
 
 let baseUrl = "";
 let registrationCode = "test-registration-code";
@@ -18,12 +18,22 @@ let temporaryDirectory = "";
 
 test("derives authentication from the admin key and rejects invalid values", () => {
   assert.equal(parseAuthEnabled(undefined, undefined), false);
-  assert.equal(parseAuthEnabled(undefined, "admin-key"), true);
+  assert.equal(parseAuthEnabled(undefined, "admin-key", "production"), true);
+  assert.equal(parseAuthEnabled(undefined, "admin-key", "development"), false);
   assert.equal(parseAuthEnabled("", "admin-key"), true);
   assert.equal(parseAuthEnabled("true", undefined), true);
   assert.equal(parseAuthEnabled("false", "admin-key"), false);
   assert.throws(() => parseAuthEnabled("TRUE", undefined), /AUTH_ENABLED must be true or false/);
   assert.throws(() => parseAuthEnabled("yes", undefined), /AUTH_ENABLED must be true or false/);
+});
+
+test("uses a stable local encryption key while keeping production explicit", () => {
+  const first = resolveModelEncryptionKey(undefined, "development");
+  const second = resolveModelEncryptionKey("", "test");
+  assert.ok(first);
+  assert.equal(first, second);
+  assert.equal(resolveModelEncryptionKey(" configured-key ", "development"), "configured-key");
+  assert.equal(resolveModelEncryptionKey(undefined, "production"), undefined);
 });
 
 before(async () => {
@@ -440,6 +450,71 @@ test("supports local development mode without registration or admin keys", async
   } finally {
     await new Promise<void>((resolve, reject) => localServer.close((error) => error ? reject(error) : resolve()));
     await rm(localDirectory, { recursive: true, force: true });
+  }
+});
+
+test("serves the development model sandbox without external configuration", async () => {
+  const sandboxDirectory = await mkdtemp(join(tmpdir(), "automation-hub-model-sandbox-"));
+  const sandboxStore = new FileStore(join(sandboxDirectory, "store.json"));
+  await sandboxStore.initialize();
+  const sandboxServer = createApiServer({
+    store: sandboxStore,
+    corsOrigin: "http://localhost:5173",
+    authEnabled: false,
+    modelSandboxEnabled: true,
+    modelEncryptionKey: "sandbox-test-encryption-key"
+  });
+  await new Promise<void>((resolve) => sandboxServer.listen(0, resolve));
+  const address = sandboxServer.address() as AddressInfo;
+  const sandboxBaseUrl = `http://127.0.0.1:${address.port}`;
+  const sandboxRequest = async (path: string, init: RequestInit = {}) => {
+    const response = await fetch(`${sandboxBaseUrl}${path}`, {
+      ...init,
+      headers: { "content-type": "application/json", ...(init.headers ?? {}) }
+    });
+    return { response, body: await response.json() };
+  };
+
+  try {
+    const models = await sandboxRequest("/api/v1/mock-model/v1/models");
+    assert.equal(models.response.status, 200);
+    assert.equal(models.body.data[0].id, "mock-gpt-4o-mini");
+
+    const completion = await sandboxRequest("/api/v1/mock-model/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        messages: [
+          { role: "system", content: "ignored" },
+          { role: "user", content: "项目：Demo\n地址：https://github.com/acme/demo\n项目：Another\n地址：https://github.com/acme/another" }
+        ]
+      })
+    });
+    assert.equal(completion.response.status, 200);
+    const content = JSON.parse(completion.body.choices[0].message.content);
+    assert.equal(content.project_analyses.length, 2);
+    assert.equal(content.project_analyses[0].category, "开发者工具");
+
+    const created = await sandboxRequest("/api/v1/admin/model-providers", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Local Sandbox",
+        base_url: `http://127.0.0.1:${address.port}/api/v1/mock-model/v1`,
+        api_key: "local-development-key",
+        selected_model: "mock-gpt-4o-mini",
+        is_default: true
+      })
+    });
+    assert.equal(created.response.status, 201);
+
+    const fetched = await sandboxRequest("/api/v1/admin/model-providers/models:fetch", {
+      method: "POST",
+      body: JSON.stringify({ provider_id: created.body.data.id })
+    });
+    assert.equal(fetched.response.status, 200);
+    assert.equal(fetched.body.data[0].id, "mock-gpt-4o-mini");
+  } finally {
+    await new Promise<void>((resolve, reject) => sandboxServer.close((error) => error ? reject(error) : resolve()));
+    await rm(sandboxDirectory, { recursive: true, force: true });
   }
 });
 

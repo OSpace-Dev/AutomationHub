@@ -19,6 +19,7 @@ defineProps<{
   form: ProviderFormState;
 }>();
 
+const isLocalDev = import.meta.env.DEV;
 const emit = defineEmits<{
   delete: [];
   fetchModels: [];
@@ -33,6 +34,7 @@ const emit = defineEmits<{
         <span class="eyebrow">OPENAI COMPATIBLE</span>
         <h2>{{ selectedProvider ? "编辑模型配置" : "新建模型配置" }}</h2>
         <p>密钥由服务端加密保存，管理端不会读取已保存的明文。</p>
+        <p v-if="isLocalDev">本地开发默认指向内置 mock 模型服务，直接保存即可联调日报。</p>
       </div>
       <span v-if="selectedProvider?.is_default" class="default-badge"><CheckCircle2 :size="14" />自动日报默认配置</span>
     </div>

@@ -9,6 +9,7 @@ import { routeAdminReports } from "./routes/admin-reports.js";
 import { routeAdminTasks } from "./routes/admin-tasks.js";
 import { routeCollection } from "./routes/collection.js";
 import { routeDevices } from "./routes/devices.js";
+import { routeMockModel } from "./routes/mock-model.js";
 import { routeCore } from "./router.js";
 import { handleError, writeJson } from "./response.js";
 import type { HttpContext } from "./context.js";
@@ -26,6 +27,7 @@ export interface ServerOptions {
   adminApiKey?: string;
   corsOrigin: string;
   authEnabled?: boolean;
+  modelSandboxEnabled?: boolean;
   adminDistPath?: string;
   modelEncryptionKey?: string;
   publicBaseUrl?: string;
@@ -84,6 +86,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse, 
 
   const context: HttpContext = { request, response, url, service, providers, reports, deliveries, options };
   if (await routeCore(context)) return;
+  if (await routeMockModel(context)) return;
   if (requiresDeviceAuth(request, url)) context.auth = await authenticateDevice(request, service, options);
   if (await routeDevices(context)) return;
   if (await routeCollection(context)) return;

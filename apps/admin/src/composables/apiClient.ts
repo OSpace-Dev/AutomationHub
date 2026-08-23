@@ -1,9 +1,11 @@
 import { ref } from "vue";
 import type { ApiResponse, PageMeta } from "../admin-models";
 
+const defaultApiOrigin = import.meta.env.DEV ? "http://localhost:3000" : window.location.origin;
+const storedApiOrigin = sessionStorage.getItem("automationhub.apiOrigin");
+
 export const apiOrigin = ref(
-  sessionStorage.getItem("automationhub.apiOrigin") ??
-    (import.meta.env.DEV ? "http://localhost:3000" : window.location.origin)
+  storedApiOrigin?.trim() || defaultApiOrigin
 );
 
 export const adminApiKey = ref(sessionStorage.getItem("automationhub.adminApiKey") ?? "");

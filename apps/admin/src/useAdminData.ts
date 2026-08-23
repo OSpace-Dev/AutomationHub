@@ -1,5 +1,8 @@
 import { computed, reactive, ref } from "vue";
 import { adminApiKey, apiFetch, apiOrigin, pagePath, requestJson } from "./composables/apiClient";
+import { useChannelsData } from "./useChannelsData";
+import { useModelProvidersData } from "./useModelProvidersData";
+import { useReportsData } from "./useReportsData";
 import type {
   ConnectionState,
   Device,
@@ -85,6 +88,9 @@ interface AuthStatus {
 type RefreshOptions = { background?: boolean };
 type SelectRunOptions = { resetPage?: boolean; preserveSelectedItem?: boolean; background?: boolean };
 let itemRequestSequence = 0;
+const { refreshReports, refreshReportRuns } = useReportsData();
+const { refreshProviders } = useModelProvidersData();
+const { refreshChannels } = useChannelsData();
 
 export function useAdminData() {
   return {
@@ -247,6 +253,9 @@ async function refreshView(view: AdminView, options: RefreshOptions = {}) {
     else if (view === "devices") await refreshDevices();
     else if (view === "tasks") await refreshTasks();
     else if (view === "monitoring") await refreshMonitoring();
+    else if (view === "reports") await Promise.all([refreshReports(options), refreshReportRuns()]);
+    else if (view === "models") await refreshProviders();
+    else if (view === "channels") await refreshChannels();
     connectionState.value = "online";
   } catch (error) {
     connectionState.value = "error";

@@ -32,13 +32,13 @@ const emit = defineEmits<{
       <div class="auth-heading">
         <span class="eyebrow">ADMIN ACCESS</span>
         <h1 id="admin-login-title">管理后台</h1>
-        <p>请输入管理 Key 以继续访问。</p>
+        <p>本地开发默认无需管理 Key；受保护部署请输入密钥继续。</p>
       </div>
       <form class="auth-form" @submit.prevent="emit('login')">
-        <label>
+        <label class="auth-field">
           <span>管理 Key</span>
           <div class="auth-input">
-            <KeyRound :size="17" aria-hidden="true" />
+            <KeyRound :size="17" class="auth-input-icon" aria-hidden="true" />
             <el-input
               :model-value="apiKey"
               type="password"

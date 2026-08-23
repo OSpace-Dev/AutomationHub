@@ -20,7 +20,7 @@ const emit = defineEmits<{
       <Server :size="19" aria-hidden="true" />
       <div>
         <strong>管理 API</strong>
-        <span>本地联调可留空管理密钥</span>
+        <span>本地默认连接 localhost:3000，管理密钥可留空</span>
       </div>
     </div>
     <label>

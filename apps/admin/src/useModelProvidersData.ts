@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import type { ModelDescriptor, ModelProvider } from "./admin-models";
-import { apiFetch } from "./composables/apiClient";
+import { apiFetch, apiOrigin } from "./composables/apiClient";
 
 const providers = ref<ModelProvider[]>([]);
 const selectedProvider = ref<ModelProvider | null>(null);
@@ -9,7 +9,7 @@ const providerActionLoading = ref(false);
 const providerError = ref("");
 const availableModels = ref<ModelDescriptor[]>([]);
 const modelFetchLoading = ref(false);
-const providerForm = ref({ name: "", baseUrl: "", apiKey: "", selectedModel: "", isDefault: true });
+const providerForm = ref(createProviderFormState());
 
 export function useModelProvidersData() {
   return {
@@ -63,13 +63,7 @@ function selectProvider(provider: ModelProvider) {
 
 function newProvider() {
   selectedProvider.value = null;
-  providerForm.value = {
-    name: "",
-    baseUrl: "",
-    apiKey: "",
-    selectedModel: "",
-    isDefault: providers.value.length === 0
-  };
+  providerForm.value = createProviderFormState(providers.value.length === 0);
   availableModels.value = [];
   providerError.value = "";
 }
@@ -93,6 +87,25 @@ async function fetchModels() {
   } finally {
     modelFetchLoading.value = false;
   }
+}
+
+function createProviderFormState(isDefault = true) {
+  if (import.meta.env.DEV) {
+    return {
+      name: "本地开发模型",
+      baseUrl: new URL("/api/v1/mock-model/v1", apiOrigin.value).toString(),
+      apiKey: "local-development-key",
+      selectedModel: "mock-gpt-4o-mini",
+      isDefault
+    };
+  }
+  return {
+    name: "",
+    baseUrl: "",
+    apiKey: "",
+    selectedModel: "",
+    isDefault
+  };
 }
 
 async function saveProvider() {

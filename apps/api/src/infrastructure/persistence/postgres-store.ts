@@ -71,10 +71,10 @@ export class PostgresStore implements Store {
     try {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock($1)", [UPDATE_LOCK_KEY]);
-      const before = await loadStoreData(client);
-      const beforeJson = snapshotEntities(before);
-      const result = mutation(before);
-      const afterJson = snapshotEntities(before);
+      const data = await loadStoreData(client);
+      const beforeJson = snapshotEntities(data);
+      const result = mutation(data);
+      const afterJson = snapshotEntities(data);
 
       for (const collection of STORE_COLLECTIONS) {
         const beforeCollection = beforeJson[collection];

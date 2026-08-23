@@ -3,11 +3,14 @@ import { SqliteStore } from "../infrastructure/persistence/sqlite-store.js";
 import { FileStore } from "../infrastructure/persistence/file-store.js";
 import type { Store } from "../application/ports/store.js";
 
+const LOCAL_MODEL_ENCRYPTION_KEY = "automationhub-local-development-only";
+
 export interface ApiConfig {
   port: number;
   store: Store;
   adminApiKey?: string;
   authEnabled: boolean;
+  modelSandboxEnabled: boolean;
   corsOrigin: string;
   adminDistPath?: string;
   modelEncryptionKey?: string;
@@ -19,25 +22,33 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const port = Number(env.PORT ?? 3000);
   const storageDriver = env.STORAGE_DRIVER ?? (env.NODE_ENV === "production" ? "postgres" : "sqlite");
   const adminApiKey = env.ADMIN_API_KEY;
-  const authEnabled = parseAuthEnabled(env.AUTH_ENABLED, adminApiKey);
+  const authEnabled = parseAuthEnabled(env.AUTH_ENABLED, adminApiKey, env.NODE_ENV ?? "development");
   return {
     port,
     store: createStore(storageDriver, env),
     adminApiKey,
     authEnabled,
+    modelSandboxEnabled: (env.NODE_ENV ?? "development") !== "production",
     corsOrigin: env.CORS_ORIGIN ?? "http://localhost:5173",
     adminDistPath: env.ADMIN_DIST_PATH,
-    modelEncryptionKey: env.MODEL_CONFIG_ENCRYPTION_KEY,
+    modelEncryptionKey: resolveModelEncryptionKey(env.MODEL_CONFIG_ENCRYPTION_KEY, env.NODE_ENV ?? "development"),
     publicBaseUrl: env.PUBLIC_BASE_URL,
     modelRequestMinIntervalMs: parseModelRequestMinInterval(env.MODEL_REQUEST_MIN_INTERVAL_MS)
   };
 }
 
-export function parseAuthEnabled(value: string | undefined, adminApiKey: string | undefined): boolean {
-  if (value === undefined || value.trim() === "") return Boolean(adminApiKey?.trim());
+export function parseAuthEnabled(value: string | undefined, adminApiKey: string | undefined, nodeEnv?: string): boolean {
+  if (value === undefined || value.trim() === "") {
+    return nodeEnv === undefined ? Boolean(adminApiKey?.trim()) : nodeEnv === "production" && Boolean(adminApiKey?.trim());
+  }
   if (value === "true") return true;
   if (value === "false") return false;
   throw new Error("AUTH_ENABLED must be true or false");
+}
+
+export function resolveModelEncryptionKey(value: string | undefined, nodeEnv?: string): string | undefined {
+  if (value?.trim()) return value.trim();
+  return nodeEnv === "production" ? undefined : LOCAL_MODEL_ENCRYPTION_KEY;
 }
 
 export function parseModelRequestMinInterval(value: string | undefined): number {
