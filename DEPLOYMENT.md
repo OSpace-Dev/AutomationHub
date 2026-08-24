@@ -17,6 +17,13 @@
 └── current -> releases/0.1.4
 ```
 
+本项目 `0.1.5` 起使用 `postgres:18-bookworm`。PostgreSQL 18 的数据目录布局与 17 及更早版本不同：
+
+- Compose 宿主机目录仍是 `shared/postgres/`。
+- 容器挂载点是 `/var/lib/postgresql`。
+- PostgreSQL 18 默认实际数据目录是 `/var/lib/postgresql/18/docker`，因此宿主机上通常会出现 `shared/postgres/18/docker/PG_VERSION`。
+- PostgreSQL 16 或更早版本常见的 `shared/postgres/PG_VERSION` 目录不能直接被 PostgreSQL 18 启动。
+
 ## 1. 目录职责
 
 - `shared/.env`：所有版本共用的生产配置和密钥。
@@ -68,6 +75,7 @@ command -v curl
 command -v docker
 docker compose version
 docker info
+docker image inspect postgres:18-bookworm
 ```
 
 `docker info` 必须成功。若 Docker 服务未启动，可使用：
@@ -90,7 +98,7 @@ artifacts/automation-hub-source-<version>.zip.sha256
 校验文件必须与 ZIP 放在同一目录。上传后执行：
 
 ```bash
-VERSION=0.1.4
+VERSION=0.1.5
 ZIP_NAME="automation-hub-source-${VERSION}.zip"
 
 cd "$DEPLOY_ROOT/artifacts"
@@ -115,7 +123,7 @@ sha256sum -c "$ZIP_NAME.sha256"
 在部署根目录执行：
 
 ```bash
-VERSION=0.1.4
+VERSION=0.1.5
 ZIP_NAME="automation-hub-source-${VERSION}.zip"
 BOOTSTRAP_DIR="$(mktemp -d)"
 
@@ -183,7 +191,7 @@ bash "$BOOTSTRAP_DIR/scripts/deploy-release.sh" \
 
 ```text
 Prepared release: ...
-Deployment succeeded. Current release: 0.1.4
+Deployment succeeded. Current release: 0.1.5
 ```
 
 执行完成后可以删除临时引导目录：
@@ -369,6 +377,8 @@ bash "$CURRENT_RELEASE/scripts/backup-postgres.sh" "$DEPLOY_ROOT"
 ls -lh "$DEPLOY_ROOT/shared/backups/"
 ```
 
+如果 `shared/postgres/PG_VERSION` 存在且内容为 `16` 或其他非 `18` 版本，先按第 9 节完成数据库迁移，再执行第 8.3 节。不要直接运行 PostgreSQL 18 Compose，也不要删除旧数据目录。
+
 ### 8.3 执行升级
 
 从新 ZIP 解压临时引导脚本：
@@ -392,7 +402,127 @@ shared/backups/
 
 只有新版本构建、启动和 `/health` 检查全部通过后，`current` 才会切换。
 
-## 9. 升级失败与回退
+## 9. PostgreSQL 16 迁移到 PostgreSQL 18
+
+只有当 `shared/postgres/PG_VERSION` 内容为 `16` 或其他低于 `18` 的版本时执行本节。迁移采用“旧库逻辑备份 -> 新空目录初始化 -> 逻辑恢复”，旧目录会保留用于排查和回退。
+
+### 9.1 确认旧数据库版本并备份
+
+```bash
+cd <deploy-root>
+export DEPLOY_ROOT="$PWD"
+cat "$DEPLOY_ROOT/shared/postgres/PG_VERSION"
+CURRENT_RELEASE="$(readlink -f "$DEPLOY_ROOT/current")"
+bash "$CURRENT_RELEASE/scripts/backup-postgres.sh" "$DEPLOY_ROOT"
+BACKUP_PATH="$(ls -1t "$DEPLOY_ROOT/shared/backups"/postgres-*.dump | head -n 1)"
+test -s "$BACKUP_PATH"
+```
+
+备份文件必须存在且大小大于 0。若备份失败，停止迁移，不要移动数据库目录。
+
+### 9.2 停止旧版本并保留旧数据目录
+
+```bash
+VERSION="$(basename "$CURRENT_RELEASE")"
+OLD_COMPOSE_ARGS=(
+  --project-name automation-hub
+  --project-directory "$CURRENT_RELEASE"
+  --env-file "$DEPLOY_ROOT/shared/.env"
+  --file "$CURRENT_RELEASE/compose.yaml"
+  --no-ansi
+)
+docker compose "${OLD_COMPOSE_ARGS[@]}" down
+
+MIGRATION_SUFFIX="$(date -u +%Y%m%d-%H%M%S)"
+mv "$DEPLOY_ROOT/shared/postgres" \
+  "$DEPLOY_ROOT/shared/postgres-pg16-$MIGRATION_SUFFIX"
+install -d -m 700 "$DEPLOY_ROOT/shared/postgres"
+```
+
+不要执行 `docker compose down -v`。不要删除 `postgres-pg16-*` 目录。
+
+### 9.3 准备 0.1.5 release 并只启动 PostgreSQL 18
+
+将 `automation-hub-source-0.1.5.zip` 和校验文件上传到 `artifacts/`，完成第 8.1 节校验，然后执行：
+
+```bash
+VERSION=0.1.5
+ZIP_NAME="automation-hub-source-${VERSION}.zip"
+RELEASE_DIR="$DEPLOY_ROOT/releases/$VERSION"
+test ! -e "$RELEASE_DIR"
+mkdir -p "$RELEASE_DIR"
+unzip -q "$DEPLOY_ROOT/artifacts/$ZIP_NAME" -d "$RELEASE_DIR"
+
+COMPOSE_ARGS=(
+  --project-name automation-hub
+  --project-directory "$RELEASE_DIR"
+  --env-file "$DEPLOY_ROOT/shared/.env"
+  --file "$RELEASE_DIR/compose.yaml"
+  --no-ansi
+)
+AUTOMATION_HUB_VERSION="$VERSION" docker compose "${COMPOSE_ARGS[@]}" up -d postgres
+AUTOMATION_HUB_VERSION="$VERSION" docker compose "${COMPOSE_ARGS[@]}" ps
+```
+
+确认 PostgreSQL 18 已经初始化：
+
+```bash
+docker compose "${COMPOSE_ARGS[@]}" exec -T postgres \
+  sh -c 'cat "$PGDATA/PG_VERSION"'
+```
+
+预期输出为 `18`。如果不是 `18`，停止操作并查看日志：
+
+```bash
+docker compose "${COMPOSE_ARGS[@]}" logs --tail=100 postgres
+```
+
+### 9.4 恢复备份并启动应用
+
+```bash
+AUTOMATION_HUB_VERSION="$VERSION" docker compose "${COMPOSE_ARGS[@]}" exec -T postgres \
+  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" pg_restore \
+    --username "$POSTGRES_USER" \
+    --dbname "$POSTGRES_DB" \
+    --clean --if-exists --no-owner' < "$BACKUP_PATH"
+
+AUTOMATION_HUB_VERSION="$VERSION" docker compose "${COMPOSE_ARGS[@]}" up -d automation-hub
+AUTOMATION_HUB_VERSION="$VERSION" docker compose "${COMPOSE_ARGS[@]}" ps
+```
+
+检查服务：
+
+```bash
+PORT="$(awk -F= '$1 == "AUTOMATION_HUB_PORT" { print $2; exit }' "$DEPLOY_ROOT/shared/.env" | tr -d '\r' | tr -d '[:space:]')"
+PORT="${PORT:-3000}"
+curl --fail --show-error "http://127.0.0.1:$PORT/health"
+```
+
+健康检查和人工验收都通过后，再切换 `current`：
+
+```bash
+ln -s "releases/$VERSION" "$DEPLOY_ROOT/.current-$VERSION"
+mv -Tf "$DEPLOY_ROOT/.current-$VERSION" "$DEPLOY_ROOT/current"
+readlink -f "$DEPLOY_ROOT/current"
+```
+
+迁移失败时，停止 0.1.5 Compose，恢复旧目录名称，并使用旧 release 启动。迁移前先记录旧的 `current` 目标：
+
+```bash
+docker compose "${COMPOSE_ARGS[@]}" down
+mv "$DEPLOY_ROOT/shared/postgres" "$DEPLOY_ROOT/shared/postgres-pg18-failed-$MIGRATION_SUFFIX"
+mv "$DEPLOY_ROOT/shared/postgres-pg16-$MIGRATION_SUFFIX" "$DEPLOY_ROOT/shared/postgres"
+AUTOMATION_HUB_VERSION="$(basename "$CURRENT_RELEASE")" docker compose \
+  --project-name automation-hub \
+  --project-directory "$CURRENT_RELEASE" \
+  --env-file "$DEPLOY_ROOT/shared/.env" \
+  --file "$CURRENT_RELEASE/compose.yaml" \
+  --no-ansi up -d
+```
+
+如果 `current` 在迁移过程中已经被切换，按第 10 节的软链接切换命令将它恢复到 `CURRENT_RELEASE`；如果从未切换，则保持原链接不变。回退后使用第 10 节的健康检查确认旧版本恢复。
+
+## 10. 升级失败与回退
 
 部署脚本失败时会：
 

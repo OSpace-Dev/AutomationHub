@@ -119,6 +119,16 @@ if [[ -e "$release_dir" ]]; then
   exit 1
 fi
 
+while IFS= read -r pg_version_file; do
+  [[ -n "$pg_version_file" ]] || continue
+  pg_version="$(tr -d '[:space:]' < "$pg_version_file")"
+  if [[ "$pg_version" != "18" ]]; then
+    printf 'PostgreSQL data directory version %s is not directly compatible with postgres:18-bookworm: %s\n' "$pg_version" "$pg_version_file" >&2
+    printf 'Back up the database and complete the PostgreSQL major-version migration before deploying this release.\n' >&2
+    exit 1
+  fi
+done < <(find "$shared_dir/postgres" -type f -name PG_VERSION -print)
+
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/automation-hub-release.XXXXXX")"
 unzip -q "$zip_path" -d "$temp_dir/extracted"
 if [[ ! -f "$temp_dir/extracted/compose.yaml" || ! -f "$temp_dir/extracted/.env.example" ]]; then

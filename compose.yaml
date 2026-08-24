@@ -1,13 +1,13 @@
 services:
   postgres:
-    image: postgres:16-bookworm
+    image: postgres:18-bookworm
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${PGDATABASE:-automationhub}
       POSTGRES_USER: ${PGUSER:-automationhub}
       POSTGRES_PASSWORD: ${PGPASSWORD:?PGPASSWORD must be set}
     volumes:
-      - ../../shared/postgres:/var/lib/postgresql/data
+      - ../../shared/postgres:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
