@@ -49,8 +49,8 @@ if [[ "$expected_hash" != "$actual_hash" ]]; then
   exit 1
 fi
 
-if ! command -v unzip >/dev/null 2>&1 || ! command -v docker >/dev/null 2>&1; then
-  printf 'This script requires unzip and docker with the Compose plugin.\n' >&2
+if ! command -v unzip >/dev/null 2>&1 || ! command -v docker >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
+  printf 'This script requires unzip, curl and docker with the Compose plugin.\n' >&2
   exit 1
 fi
 
@@ -136,12 +136,23 @@ if grep -Eq 'replace-with-' "$shared_env"; then
   exit 1
 fi
 
-if [[ -L "$deploy_root/current" || -d "$deploy_root/current" ]]; then
+if [[ -e "$deploy_root/current" || -L "$deploy_root/current" ]]; then
+  if [[ ! -L "$deploy_root/current" ]]; then
+    printf 'Current release marker must be a symlink: %s\n' "$deploy_root/current" >&2
+    exit 1
+  fi
   previous_release="$(readlink -f "$deploy_root/current" 2>/dev/null || true)"
   if [[ -n "$previous_release" && ! -d "$previous_release" ]]; then
     printf 'Current release target does not exist: %s\n' "$previous_release" >&2
     exit 1
   fi
+  case "$previous_release" in
+    "$releases_dir"/*) ;;
+    *)
+      printf 'Current release target must be under %s: %s\n' "$releases_dir" "$previous_release" >&2
+      exit 1
+      ;;
+  esac
 fi
 
 artifact_zip="$artifacts_dir/$zip_name"
