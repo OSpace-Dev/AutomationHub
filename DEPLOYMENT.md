@@ -1,6 +1,6 @@
-# AutomationHub 部署与升级
+# AutomationHub 部署与升级操作手册
 
-本项目采用“发布目录”和“持久化目录”分离的部署布局。`<deploy-root>` 是服务器上的部署根目录；仓库文档不绑定某个真实服务器绝对路径。
+本文面向 Linux 服务器。部署采用“发布目录”和“持久化目录”分离的布局：
 
 ```text
 <deploy-root>/
@@ -17,61 +17,448 @@
 └── current -> releases/0.1.4
 ```
 
-- `shared/.env`、`shared/postgres/` 和 `shared/backups/` 跨版本保留。
-- `releases/<version>/` 只保存某个版本的程序包解压内容。
-- `artifacts/` 保存已校验的源码包和 SHA-256 文件。
-- `current` 只在新版本健康检查通过后切换，用于标记当前程序版本。
+## 1. 目录职责
 
-源码包只用于服务器构建 AutomationHub。不要把真实 `.env`、数据库数据或密钥放入源码包或镜像。
+- `shared/.env`：所有版本共用的生产配置和密钥。
+- `shared/postgres/`：所有版本共用的 PostgreSQL 数据目录。
+- `shared/backups/`：PostgreSQL 备份文件。
+- `releases/<version>/`：某个版本解压后的程序文件，只新增，不覆盖旧版本。
+- `artifacts/`：上传的 ZIP 和 SHA-256 校验文件。
+- `current`：指向当前已通过健康检查的 release 的软链接。
 
-## 首次部署
-
-1. 在服务器创建 `<deploy-root>/artifacts/`，上传源码 ZIP 与相邻的 `.sha256` 文件。
-2. 将 ZIP 临时解压到临时目录，从其中执行引导脚本。脚本本身会再次校验 ZIP、解压到新的 release，并完成构建、启动和健康检查：
-
-   ```bash
-   unzip -q automation-hub-source-0.1.4.zip -d <bootstrap-dir>
-   bash <bootstrap-dir>/scripts/deploy-release.sh \
-     automation-hub-source-0.1.4.zip <deploy-root>
-   ```
-
-3. 首次运行会从 `.env.example` 创建 `<deploy-root>/shared/.env`，然后因存在占位值而停止。编辑该文件中的密钥、域名和端口后，重新执行同一个脚本。
-4. 脚本会创建 `shared/postgres/`、`shared/backups/`、`releases/` 和 `artifacts/`，拒绝覆盖已有版本目录，并在 `/health` 通过后更新 `current`。
-
-保持 `MODEL_CONFIG_ENCRYPTION_KEY` 在后续升级中不变，否则现有模型 API 密钥无法解密。生产 Compose 固定使用 PostgreSQL；本地开发仍可使用 SQLite。
-
-## 后续升级
-
-1. 将新版本 ZIP 和 `.sha256` 上传到 `<deploy-root>/artifacts/`，或从其他目录直接传给脚本。
-2. 升级前执行数据库备份：
-
-   ```bash
-   bash scripts/backup-postgres.sh <deploy-root>
-   ```
-
-3. 从新 ZIP 临时解压脚本，并执行：
-
-   ```bash
-   unzip -q automation-hub-source-0.1.4.zip -d <bootstrap-dir>
-   bash <bootstrap-dir>/scripts/deploy-release.sh \
-     automation-hub-source-0.1.4.zip <deploy-root>
-   ```
-
-4. 脚本只新增 `releases/0.1.4/`，复用 `shared/.env` 和 `shared/postgres/`，不会复制或覆盖持久化数据。
-5. 健康检查通过后，再人工打开 `/tasks`、检查设备心跳、日报生成和公开分享链接。
-
-`MODEL_REQUEST_MIN_INTERVAL_MS=60000` 是默认建议值；`PUBLIC_BASE_URL` 应设置为外部可访问的管理站点 origin，不要追加 `/share/reports/...`。
-
-## PostgreSQL 备份与回退
-
-备份脚本从 `shared/.env` 和 `current` 读取配置，密码只在容器内通过环境变量传给 `pg_dump`，备份文件写入 `shared/backups/` 且权限为 `600`。
+所有服务器命令都从 `<deploy-root>` 执行。先将 `<deploy-root>` 替换为实际部署目录：
 
 ```bash
-bash scripts/backup-postgres.sh <deploy-root>
+cd <deploy-root>
+export DEPLOY_ROOT="$PWD"
 ```
 
-健康检查失败时脚本会保留新 release，保持 `current` 指向旧版本，并尝试停止新 Compose 服务、重新启动旧版本。人工回退时也只使用旧 release 和同一份 `shared/.env`，确认 `/health` 后再恢复流量。
+不要在 `releases/<version>/` 内直接运行相对路径的部署命令。Compose 文件虽然位于 release 目录，但命令通过 `--project-directory` 明确指定该目录。
 
-不要执行 `docker compose down -v`，也不要删除 `shared/postgres/`。数据库 schema 变更必须向后兼容；如果无法做到，必须在升级前准备可验证的数据库备份、恢复和前滚方案。旧 release 在确认新版本稳定前不要删除。
+## 2. 先判断当前处于哪一步
 
-首次 PostgreSQL 部署仍从空库开始，不自动导入旧 JSON 数据。旧 JSON 存储如果需要保留，应由旧版本自己的部署布局管理；本方案不会自动迁移或同步两种数据格式。
+在部署根目录执行：
+
+```bash
+cd <deploy-root>
+export DEPLOY_ROOT="$PWD"
+find "$DEPLOY_ROOT" -maxdepth 2 -type d -print
+test -f "$DEPLOY_ROOT/shared/.env" && echo 'shared/.env: exists' || echo 'shared/.env: missing'
+test -L "$DEPLOY_ROOT/current" && echo 'current: exists' || echo 'current: missing'
+```
+
+按结果选择流程：
+
+- `releases/<version>` 不存在：按第 4 节执行首次部署。
+- `releases/<version>` 已存在，但 `current` 不存在：按第 5 节“已有 release”执行手动启动。
+- `current` 已存在：服务通常已经部署过；按第 6 节检查容器和日志，升级按第 7 节执行。
+
+不要把“上传 ZIP”“解压临时引导脚本”“解压到 `releases/<version>`”混为同一个步骤。ZIP 可以放在 `artifacts/`，引导脚本放在临时目录，正式程序才放在 `releases/<version>`。
+
+## 3. 部署前检查
+
+服务器需要安装并运行：
+
+```bash
+command -v bash
+command -v unzip
+command -v zipinfo
+command -v sha256sum
+command -v curl
+command -v docker
+docker compose version
+docker info
+```
+
+`docker info` 必须成功。若 Docker 服务未启动，可使用：
+
+```bash
+sudo systemctl enable --now docker
+```
+
+当前用户还需要能够执行 Docker。若出现 permission denied，确认用户已加入 Docker 用户组，或临时使用 `sudo docker ...`，但不要混用两种方式创建同一套容器和数据目录。
+
+## 4. 上传制品
+
+每个版本必须同时上传两个文件，并且文件名不能修改：
+
+```text
+artifacts/automation-hub-source-<version>.zip
+artifacts/automation-hub-source-<version>.zip.sha256
+```
+
+校验文件必须与 ZIP 放在同一目录。上传后执行：
+
+```bash
+VERSION=0.1.4
+ZIP_NAME="automation-hub-source-${VERSION}.zip"
+
+cd "$DEPLOY_ROOT/artifacts"
+sha256sum -c "$ZIP_NAME.sha256"
+```
+
+看到 `OK` 才继续。若校验失败，重新上传两个文件，不要强行部署。
+
+## 5. 首次部署
+
+首次部署使用制品 ZIP 内的 `scripts/deploy-release.sh`。脚本会负责：
+
+1. 校验 ZIP 和路径安全。
+2. 创建 `shared/`、`releases/` 和 `artifacts/`。
+3. 从 `.env.example` 创建 `shared/.env`。
+4. 将程序解压到新的 `releases/<version>/`。
+5. 执行 Docker Compose 构建、启动和 `/health` 检查。
+6. 健康检查通过后更新 `current`。
+
+### 5.1 解压引导脚本
+
+在部署根目录执行：
+
+```bash
+VERSION=0.1.4
+ZIP_NAME="automation-hub-source-${VERSION}.zip"
+BOOTSTRAP_DIR="$(mktemp -d)"
+
+unzip -q \
+  "$DEPLOY_ROOT/artifacts/$ZIP_NAME" \
+  -d "$BOOTSTRAP_DIR"
+```
+
+不要把引导目录放入 `releases/`，因为它只是临时执行脚本的目录。
+
+### 5.2 第一次运行
+
+```bash
+bash "$BOOTSTRAP_DIR/scripts/deploy-release.sh" \
+  "$DEPLOY_ROOT/artifacts/$ZIP_NAME" \
+  "$DEPLOY_ROOT"
+```
+
+第一次运行如果提示以下内容，这是预期流程，不是部署失败：
+
+```text
+Created .../shared/.env from .env.example.
+Replace placeholder values ... before deployment.
+```
+
+此时脚本已经创建了 `shared/.env`，但不会启动服务。编辑配置：
+
+```bash
+umask 077
+nano "$DEPLOY_ROOT/shared/.env"
+chmod 600 "$DEPLOY_ROOT/shared/.env"
+```
+
+至少修改这些配置：
+
+```env
+ADMIN_API_KEY=改成管理后台登录密钥
+MODEL_CONFIG_ENCRYPTION_KEY=生成后长期保持不变
+PGPASSWORD=改成数据库密码
+PUBLIC_BASE_URL=https://外部访问的管理站点域名
+AUTOMATION_HUB_PORT=3000
+```
+
+`MODEL_CONFIG_ENCRYPTION_KEY` 后续升级必须保持不变，否则已保存的模型 API 密钥无法解密。
+
+可以使用以下命令生成随机值，再复制到 `.env`：
+
+```bash
+openssl rand -hex 32
+```
+
+不要把真实 `.env` 上传到 `artifacts/`，也不要把密钥写入源码或 ZIP。
+
+### 5.3 第二次运行
+
+配置完成后，在部署根目录重新执行同一条命令：
+
+```bash
+bash "$BOOTSTRAP_DIR/scripts/deploy-release.sh" \
+  "$DEPLOY_ROOT/artifacts/$ZIP_NAME" \
+  "$DEPLOY_ROOT"
+```
+
+成功时应看到：
+
+```text
+Prepared release: ...
+Deployment succeeded. Current release: 0.1.4
+```
+
+执行完成后可以删除临时引导目录：
+
+```bash
+rm -rf "$BOOTSTRAP_DIR"
+```
+
+## 6. 已经存在 `releases/<version>` 时怎么处理
+
+如果已经看到：
+
+```text
+releases/0.1.4/
+shared/.env
+shared/postgres/
+```
+
+说明初始化流程已经执行过一部分。此时不要再次运行 `deploy-release.sh`，因为脚本会拒绝覆盖已有的 `releases/0.1.4/`。
+
+先检查配置没有占位符：
+
+```bash
+grep -n 'replace-with-' "$DEPLOY_ROOT/shared/.env" || true
+```
+
+如果有输出，先编辑配置并再次检查：
+
+```bash
+nano "$DEPLOY_ROOT/shared/.env"
+chmod 600 "$DEPLOY_ROOT/shared/.env"
+```
+
+然后手动完成当前 release 的 Docker 启动：
+
+```bash
+VERSION=0.1.4
+RELEASE_DIR="$DEPLOY_ROOT/releases/$VERSION"
+ENV_FILE="$DEPLOY_ROOT/shared/.env"
+
+compose() {
+  AUTOMATION_HUB_VERSION="$VERSION" docker compose \
+    --project-name automation-hub \
+    --project-directory "$RELEASE_DIR" \
+    --env-file "$ENV_FILE" \
+    --file "$RELEASE_DIR/compose.yaml" \
+    --no-ansi "$@"
+}
+
+compose config
+compose build --pull
+compose up -d
+compose ps
+```
+
+检查健康状态：
+
+```bash
+curl --fail --show-error http://127.0.0.1:3000/health
+```
+
+如果 `AUTOMATION_HUB_PORT` 不是 `3000`，将上面的端口替换成 `.env` 中的端口。
+
+健康检查成功并且 `current` 不存在时，创建当前版本软链接：
+
+```bash
+if [[ ! -e "$DEPLOY_ROOT/current" && ! -L "$DEPLOY_ROOT/current" ]]; then
+  ln -s "releases/$VERSION" "$DEPLOY_ROOT/.current-$VERSION"
+  mv -Tf "$DEPLOY_ROOT/.current-$VERSION" "$DEPLOY_ROOT/current"
+fi
+
+readlink -f "$DEPLOY_ROOT/current"
+```
+
+如果 `current` 已经存在，不要直接删除。先确认它指向哪个版本：
+
+```bash
+readlink -f "$DEPLOY_ROOT/current"
+```
+
+## 7. 日常检查与日志
+
+查看当前版本：
+
+```bash
+readlink -f "$DEPLOY_ROOT/current"
+```
+
+查看容器：
+
+```bash
+VERSION="$(basename "$(readlink -f "$DEPLOY_ROOT/current")")"
+RELEASE_DIR="$DEPLOY_ROOT/releases/$VERSION"
+
+docker compose \
+  --project-name automation-hub \
+  --project-directory "$RELEASE_DIR" \
+  --env-file "$DEPLOY_ROOT/shared/.env" \
+  --file "$RELEASE_DIR/compose.yaml" \
+  --no-ansi ps
+```
+
+查看应用日志：
+
+```bash
+docker compose \
+  --project-name automation-hub \
+  --project-directory "$RELEASE_DIR" \
+  --env-file "$DEPLOY_ROOT/shared/.env" \
+  --file "$RELEASE_DIR/compose.yaml" \
+  --no-ansi logs --tail=100 automation-hub
+```
+
+查看 PostgreSQL 日志：
+
+```bash
+docker compose \
+  --project-name automation-hub \
+  --project-directory "$RELEASE_DIR" \
+  --env-file "$DEPLOY_ROOT/shared/.env" \
+  --file "$RELEASE_DIR/compose.yaml" \
+  --no-ansi logs --tail=100 postgres
+```
+
+重新启动当前版本：
+
+```bash
+docker compose \
+  --project-name automation-hub \
+  --project-directory "$RELEASE_DIR" \
+  --env-file "$DEPLOY_ROOT/shared/.env" \
+  --file "$RELEASE_DIR/compose.yaml" \
+  --no-ansi up -d
+```
+
+停止当前服务时可以使用 `down`，但禁止使用 `down -v`：
+
+```bash
+docker compose \
+  --project-name automation-hub \
+  --project-directory "$RELEASE_DIR" \
+  --env-file "$DEPLOY_ROOT/shared/.env" \
+  --file "$RELEASE_DIR/compose.yaml" \
+  --no-ansi down
+```
+
+## 8. 后续升级
+
+以下示例假设升级到 `0.1.5`，实际版本替换 `VERSION` 即可。
+
+### 8.1 上传并校验
+
+将以下两个文件上传到 `$DEPLOY_ROOT/artifacts/`：
+
+```text
+automation-hub-source-0.1.5.zip
+automation-hub-source-0.1.5.zip.sha256
+```
+
+```bash
+VERSION=0.1.5
+ZIP_NAME="automation-hub-source-${VERSION}.zip"
+
+cd "$DEPLOY_ROOT/artifacts"
+sha256sum -c "$ZIP_NAME.sha256"
+test ! -e "$DEPLOY_ROOT/releases/$VERSION"
+```
+
+如果同版本 release 已存在，停止升级，不要覆盖它。
+
+### 8.2 升级前备份
+
+备份脚本位于当前 release 中，使用当前 `current` 和 `shared/.env`：
+
+```bash
+CURRENT_RELEASE="$(readlink -f "$DEPLOY_ROOT/current")"
+bash "$CURRENT_RELEASE/scripts/backup-postgres.sh" "$DEPLOY_ROOT"
+```
+
+确认备份文件已生成：
+
+```bash
+ls -lh "$DEPLOY_ROOT/shared/backups/"
+```
+
+### 8.3 执行升级
+
+从新 ZIP 解压临时引导脚本：
+
+```bash
+BOOTSTRAP_DIR="$(mktemp -d)"
+unzip -q "$DEPLOY_ROOT/artifacts/$ZIP_NAME" -d "$BOOTSTRAP_DIR"
+
+bash "$BOOTSTRAP_DIR/scripts/deploy-release.sh" \
+  "$DEPLOY_ROOT/artifacts/$ZIP_NAME" \
+  "$DEPLOY_ROOT"
+```
+
+脚本只会新增 `releases/0.1.5/`，复用以下数据：
+
+```text
+shared/.env
+shared/postgres/
+shared/backups/
+```
+
+只有新版本构建、启动和 `/health` 检查全部通过后，`current` 才会切换。
+
+## 9. 升级失败与回退
+
+部署脚本失败时会：
+
+1. 保留新建的 release，便于排查。
+2. 停止新版本 Compose 服务。
+3. 尝试重新启动上一版本。
+4. 保持 `current` 指向旧版本。
+
+检查当前版本：
+
+```bash
+readlink -f "$DEPLOY_ROOT/current"
+```
+
+手动启动指定旧版本时：
+
+```bash
+VERSION=0.1.3
+RELEASE_DIR="$DEPLOY_ROOT/releases/$VERSION"
+
+AUTOMATION_HUB_VERSION="$VERSION" docker compose \
+  --project-name automation-hub \
+  --project-directory "$RELEASE_DIR" \
+  --env-file "$DEPLOY_ROOT/shared/.env" \
+  --file "$RELEASE_DIR/compose.yaml" \
+  --no-ansi up -d
+```
+
+确认旧版本健康后，再切换软链接：
+
+```bash
+ln -s "releases/$VERSION" "$DEPLOY_ROOT/.current-$VERSION"
+mv -Tf "$DEPLOY_ROOT/.current-$VERSION" "$DEPLOY_ROOT/current"
+curl --fail --show-error http://127.0.0.1:3000/health
+```
+
+回退期间：
+
+- 不删除 `shared/postgres/`。
+- 不执行 `docker compose down -v`。
+- 不删除最后一个可用的旧 release。
+- 不修改现有的 `MODEL_CONFIG_ENCRYPTION_KEY`。
+
+## 10. 首次部署验收
+
+部署成功后至少检查：
+
+```bash
+curl --fail --show-error http://127.0.0.1:3000/health
+readlink -f "$DEPLOY_ROOT/current"
+docker ps
+```
+
+浏览器人工验收：
+
+1. 打开管理后台，确认可以登录。
+2. 打开任务列表，确认任务数据可以读取。
+3. 检查设备心跳和授权管理。
+4. 打开日报设置，确认日报提示词可以修改和保存。
+5. 检查日报生成、Telegram 推送和公开分享链接。
+
+## 11. 数据与安全注意事项
+
+- `shared/.env` 不上传、不提交、不放入 ZIP。
+- PostgreSQL 数据只在 `shared/postgres/`，不要删除或移动。
+- 备份文件位于 `shared/backups/`，权限应为 `600`。
+- `MODEL_CONFIG_ENCRYPTION_KEY` 必须跨版本保持一致。
+- `PUBLIC_BASE_URL` 应设置为外部可访问的站点 origin，不要追加分享页面路径。
+- 数据库 schema 变更必须向后兼容；不兼容迁移必须在升级前单独准备恢复方案。
