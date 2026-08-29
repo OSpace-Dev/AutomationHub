@@ -240,3 +240,39 @@ dist/automation-hub-source-0.1.8.zip.sha256
 ```
 
 源码包不包含真实 `.env`、PostgreSQL 数据、依赖目录、构建目录、日志或其他 ZIP 文件。
+
+## 10. 本次故障经验
+
+### 10.1 现象与根因
+
+如果 API 容器出现以下错误：
+
+```text
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'pg'
+```
+
+不能只检查 `apps/api/package.json` 是否声明了 `pg`。本项目使用 pnpm workspace，开发和构建阶段的 `node_modules` 可能包含指向 workspace 包存储的符号链接；如果直接把这类目录复制到最终镜像，链接目标不会随镜像一起存在，运行时仍然会找不到依赖。
+
+### 10.2 当前版本的修复规则
+
+Dockerfile 必须在构建阶段为 API 生成独立的生产依赖目录：
+
+```dockerfile
+RUN pnpm --filter automation-hub-api deploy --prod --legacy /tmp/api-runtime
+RUN cd /tmp/api-runtime && node --input-type=module -e "await import('pg'); await import('proxy-agent')"
+```
+
+最终运行镜像只复制这个独立目录下的 `node_modules`，不能复制 workspace 根目录或 `apps/api/node_modules` 的链接目录。构建期导入检查是发布前的快速失败检查，可在镜像生成阶段直接发现生产依赖缺失。
+
+### 10.3 后续排查顺序
+
+出现容器启动异常时，固定按以下顺序检查：
+
+1. 确认当前目录是具体的 `release/<version>`，不要在部署根目录执行 Compose。
+2. 执行 `docker compose --env-file ../../data/.env config`，确认配置文件和相对路径解析正确。
+3. 执行 `docker compose --env-file ../../data/.env ps`，确认 PostgreSQL 先健康、应用容器没有反复重启。
+4. 执行 `docker compose --env-file ../../data/.env logs --tail=200 automation-hub`，区分入口文件缺失、生产依赖缺失和数据库连接问题。
+5. Dockerfile 或依赖发生变化时使用 `docker compose --env-file ../../data/.env build --no-cache`，避免复用旧版本错误构建层。
+6. 通过 `curl --fail --show-error http://127.0.0.1:<port>/health` 完成应用健康检查。
+
+不要通过把开发依赖目录整体复制进运行镜像来绕过问题，也不要因为容器启动失败而删除 `data/postgres/`。生产依赖必须在构建阶段独立部署并验证，数据目录必须与版本目录保持分离。
