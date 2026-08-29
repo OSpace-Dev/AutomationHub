@@ -1,6 +1,6 @@
 # AutomationHub 部署手册
 
-本文适用于 `0.1.7` 及后续版本。部署目标是 Linux 服务器，服务器使用 Docker Compose 构建并启动容器。
+本文适用于 `0.1.8` 及后续版本。部署目标是 Linux 服务器，服务器使用 Docker Compose 构建并启动容器。
 
 本次采用全新部署方案，不处理旧目录、旧 PostgreSQL 数据或旧版本迁移。请使用一个新的、为空的部署根目录。
 
@@ -13,7 +13,7 @@
 │   ├── postgres/
 │   └── backups/
 └── release/
-    ├── 0.1.7/
+    ├── 0.1.8/
     └── <next-version>/
 ```
 
@@ -80,14 +80,14 @@ mkdir -p "$DEPLOY_ROOT/release"
 将以下两个文件上传到服务器临时目录，例如 `/tmp`：
 
 ```text
-automation-hub-source-0.1.7.zip
-automation-hub-source-0.1.7.zip.sha256
+automation-hub-source-0.1.8.zip
+automation-hub-source-0.1.8.zip.sha256
 ```
 
 校验 ZIP：
 
 ```bash
-VERSION=0.1.7
+VERSION=0.1.8
 ZIP_NAME="automation-hub-source-${VERSION}.zip"
 cd /tmp
 sha256sum -c "${ZIP_NAME}.sha256"
@@ -99,7 +99,7 @@ sha256sum -c "${ZIP_NAME}.sha256"
 
 ```bash
 cd "$DEPLOY_ROOT"
-VERSION=0.1.7
+VERSION=0.1.8
 ZIP_NAME="automation-hub-source-${VERSION}.zip"
 RELEASE_DIR="$DEPLOY_ROOT/release/$VERSION"
 test ! -e "$RELEASE_DIR"
@@ -139,10 +139,12 @@ AUTOMATION_HUB_PORT=3000
 ```bash
 cd "$RELEASE_DIR"
 docker compose --env-file ../../data/.env config
-docker compose --env-file ../../data/.env build
+docker compose --env-file ../../data/.env build --no-cache
 docker compose --env-file ../../data/.env up -d
 docker compose --env-file ../../data/.env ps
 ```
+
+首次部署使用 `--no-cache`，确保服务器不会复用之前版本的错误构建层。后续版本如果 Dockerfile 或依赖发生变化，也建议首次构建使用 `--no-cache`。
 
 检查健康接口：
 
@@ -154,12 +156,12 @@ curl --fail --show-error "http://127.0.0.1:${PORT}/health"
 
 ## 5. 后续更新
 
-每次更新只解压到新的 `release/<版本>`，不修改 `data/`。以下示例更新到 `0.1.8`：
+每次更新只解压到新的 `release/<版本>`，不修改 `data/`。以下示例更新到 `0.1.9`：
 
 ```bash
 cd <deploy-root>
 export DEPLOY_ROOT="$PWD"
-VERSION=0.1.8
+VERSION=0.1.9
 ZIP_NAME="automation-hub-source-${VERSION}.zip"
 RELEASE_DIR="$DEPLOY_ROOT/release/$VERSION"
 test ! -e "$RELEASE_DIR"
@@ -167,7 +169,7 @@ mkdir "$RELEASE_DIR"
 unzip -q "/tmp/$ZIP_NAME" -d "$RELEASE_DIR"
 cd "$RELEASE_DIR"
 docker compose --env-file ../../data/.env config
-docker compose --env-file ../../data/.env build
+docker compose --env-file ../../data/.env build --no-cache
 docker compose --env-file ../../data/.env up -d
 docker compose --env-file ../../data/.env ps
 ```
@@ -175,7 +177,7 @@ docker compose --env-file ../../data/.env ps
 更新前备份数据库：
 
 ```bash
-cd "$DEPLOY_ROOT/release/0.1.7"
+cd "$DEPLOY_ROOT/release/0.1.8"
 bash scripts/backup-postgres.sh
 ```
 
@@ -188,7 +190,7 @@ bash scripts/backup-postgres.sh
 ```bash
 cd <deploy-root>
 export DEPLOY_ROOT="$PWD"
-VERSION=0.1.7
+VERSION=0.1.8
 cd "$DEPLOY_ROOT/release/$VERSION"
 ```
 
@@ -209,7 +211,7 @@ docker compose --env-file ../../data/.env down
 ```bash
 cd <deploy-root>
 export DEPLOY_ROOT="$PWD"
-VERSION=0.1.7
+VERSION=0.1.8
 cd "$DEPLOY_ROOT/release/$VERSION"
 docker compose --env-file ../../data/.env build
 docker compose --env-file ../../data/.env up -d
@@ -230,11 +232,11 @@ curl --fail --show-error "http://127.0.0.1:${PORT:-3000}/health"
 
 ## 9. Windows 开发机生成源码包
 
-在 `codes/AutomationHub/` 目录执行 `scripts/package-source.ps1`。脚本默认生成 `0.1.7`：
+在 `codes/AutomationHub/` 目录执行 `scripts/package-source.ps1`。脚本默认生成 `0.1.8`：
 
 ```text
-dist/automation-hub-source-0.1.7.zip
-dist/automation-hub-source-0.1.7.zip.sha256
+dist/automation-hub-source-0.1.8.zip
+dist/automation-hub-source-0.1.8.zip.sha256
 ```
 
 源码包不包含真实 `.env`、PostgreSQL 数据、依赖目录、构建目录、日志或其他 ZIP 文件。

@@ -11,6 +11,8 @@ RUN pnpm install --frozen-lockfile
 COPY apps/api apps/api
 COPY apps/admin apps/admin
 RUN pnpm build
+RUN pnpm --filter automation-hub-api deploy --prod --legacy /tmp/api-runtime
+RUN cd /tmp/api-runtime && node --input-type=module -e "await import('pg'); await import('proxy-agent')"
 
 FROM node:22-bookworm-slim AS runtime
 
@@ -21,8 +23,7 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY --from=build /app/apps/api/dist /app/api
 COPY --from=build /app/apps/admin/dist /app/admin
-COPY --from=build /app/node_modules /app/node_modules
-COPY --from=build /app/apps/api/node_modules /app/api/node_modules
+COPY --from=build /tmp/api-runtime/node_modules /app/api/node_modules
 
 USER node
 EXPOSE 3000

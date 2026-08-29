@@ -1,7 +1,7 @@
 {
   "name": "automation-hub",
   "private": true,
-  "version": "0.1.7",
+  "version": "0.1.8",
   "packageManager": "pnpm@10.11.0",
   "scripts": {
     "dev:api": "corepack pnpm --filter automation-hub-api dev",
