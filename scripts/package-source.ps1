@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "0.1.5",
+  [string]$Version = "0.1.6",
   [string]$OutputDirectory = "dist"
 )
 
@@ -20,7 +20,7 @@ $packageEntries = @(
   "pnpm-workspace.yaml",
   "tsconfig.base.json",
   "DEPLOYMENT.md",
-  "scripts",
+  "scripts/backup-postgres.sh",
   "apps/api/package.json",
   "apps/api/tsconfig.json",
   "apps/api/tsconfig.build.json",
